@@ -1,0 +1,10 @@
+(executable
+  (name test)
+  (libraries
+   tnqcc
+   base
+   ounit))
+
+(alias
+  (name runtest)
+  (action (run ./test.exe)))

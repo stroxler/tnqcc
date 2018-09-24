@@ -1,0 +1,11 @@
+opam-version: "1.2"
+name: "tnqcc"
+version: "1.0.0"
+maintainer: "Steven Troxler <email@example.com>"
+
+depends: [
+  "dune" {build}
+  # the str package s built-in
+  "base"
+  "ppx_deriving"
+]

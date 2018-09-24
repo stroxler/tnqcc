@@ -1,0 +1,8 @@
+(library
+  (name tnqcc)
+  (libraries base str)
+  (preprocess
+    (pps
+     ppx_deriving.show))
+  (synopsis "Trox's not-quite-C compiler")
+  )
