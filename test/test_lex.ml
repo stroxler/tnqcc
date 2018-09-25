@@ -4,7 +4,7 @@ open Tnqcc
 let lex_tcase code expected_tokens =
   let actual_tokens = lex code in
   (fun _ ->
-     assert_equal expected_tokens actual_tokens) (* ~printer:tokens_to_string*)
+     assert_equal expected_tokens actual_tokens ~printer:Tok.show_tokens)
 
 let tests = [
     "can lex some simple tokens" >:: lex_tcase
@@ -29,5 +29,13 @@ let tests = [
       Tnqcc.Tok.([
           KW_INT; ID "main"; LPAREN; RPAREN;
           LBRACE; KW_RETURN; LIT_INT 0; SEMICOL; RBRACE;
+        ]);
+    "lexes two functions" >:: lex_tcase
+      "int main() { return 0; }\nint cool() { return 1; }"
+      Tnqcc.Tok.([
+          KW_INT; ID "main"; LPAREN; RPAREN;
+          LBRACE; KW_RETURN; LIT_INT 0; SEMICOL; RBRACE;
+          KW_INT; ID "cool"; LPAREN; RPAREN;
+          LBRACE; KW_RETURN; LIT_INT 1; SEMICOL; RBRACE;
         ]);
   ]

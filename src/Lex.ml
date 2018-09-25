@@ -17,41 +17,47 @@ let id_or_kw_token str =
 
 
 let lex_complex_token code =
-  let str_code = String.of_char_list code in
-  if Str.string_match id_or_kw_re str_code 0
-  then (* it is an id or a keyword *)
-    let id_str = Str.matched_group 1 str_code in
-    let rest_str = Str.matched_group 2 str_code in
-    let tok = id_or_kw_token id_str in
-    tok, String.to_list rest_str
-  else if Str.string_match int_re str_code 0
-  then (* it is an int literal *)
-    let int_str = Str.matched_group 1 str_code in
-    let rest_str = Str.matched_group 2 str_code in
-    let int_val = Int.of_int32 @@ Int32.of_string @@ int_str in
-    match int_val with
-    | None -> failwith ("Could not parse " ^ int_str ^ " as an int")
-    | (Some i) -> LIT_INT i, String.to_list rest_str
-  else
-    failwith ("Syntax error: \"" ^ str_code ^ "\" is invalid")
+  match String.split_lines @@ String.of_char_list code with
+  | str_code::later_line_strings ->
+    (* split the code string into the current line and future lines
+       the last regexp group won't match past a newline, which is why we need this logic *)
+    let later_lines = String.concat ~sep:"\n" later_line_strings in
+    let rest_of_chars (rest_of_line: string) = String.to_list @@ rest_of_line ^ later_lines in
+    (* check for each of the possible regexp matches *)
+    if Str.string_match id_or_kw_re str_code 0
+    then (* it is an id or a keyword *)
+      let id_str = Str.matched_group 1 str_code in
+      let rest_str = Str.matched_group 2 str_code in
+      let tok = id_or_kw_token id_str in
+      tok, rest_of_chars rest_str
+    else if Str.string_match int_re str_code 0
+    then (* it is an int literal *)
+      let int_str = Str.matched_group 1 str_code in
+      let rest_str = Str.matched_group 2 str_code in
+      let int_val = Int.of_int32 @@ Int32.of_string @@ int_str in
+      match int_val with
+      | None -> failwith ("Could not parse " ^ int_str ^ " as an int")
+      | (Some i) -> LIT_INT i, rest_of_chars rest_str
+    else
+      failwith ("Syntax error: \"" ^ str_code ^ "\" is invalid")
+  | [] -> failwith "Failed to parse token (should not hit this)"
 
 
-let rec lex_rev code tokens =
+let rec go_lex code tokens =
   match code with
-  | [] -> tokens
-  | '{'::rest -> lex_rev rest (LBRACE::tokens)
-  | '}'::rest -> lex_rev rest (RBRACE::tokens)
-  | '('::rest -> lex_rev rest (LPAREN::tokens)
-  | ')'::rest -> lex_rev rest (RPAREN::tokens)
-  | ';'::rest -> lex_rev rest (SEMICOL::tokens)
-  | c::rest ->
+  | [] -> List.rev tokens
+  | '{'::rest -> go_lex rest (LBRACE::tokens)
+  | '}'::rest -> go_lex rest (RBRACE::tokens)
+  | '('::rest -> go_lex rest (LPAREN::tokens)
+  | ')'::rest -> go_lex rest (RPAREN::tokens)
+  | ';'::rest -> go_lex rest (SEMICOL::tokens)
+  | c::more ->
     if Char.is_whitespace c
-    then lex_rev rest tokens
+    then go_lex more tokens
     else
       let tok, rest = lex_complex_token code in
-      lex_rev rest (tok::tokens)
+      go_lex rest (tok::tokens)
 
 let lex code =
   let code_list = Base.String.to_list code in
-  let tokens_rev = lex_rev code_list [] in
-  List.rev tokens_rev
+  go_lex code_list []
