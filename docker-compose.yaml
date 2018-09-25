@@ -1,0 +1,9 @@
+version: '3'
+
+services:
+  box:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/code

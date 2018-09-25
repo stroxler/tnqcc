@@ -39,3 +39,25 @@ seem instructive to try lexing and parsing C by hand
 once, and we avoid some more complicated interactions
 with the `dune` build system by sticking to vanilla
 `.ml` files.
+
+# Gcc nonsense
+
+To compile a simple example, when figuring out what
+assembly language to generate, use this command:
+```
+gcc -m32 -S -O3 -fno-asynchronous-unwind-tables <file.c>
+```
+This will generate a `<file>.s` file of gcc-style 32 bit
+assembly. Note that there's an altenative syntax, nasm,
+which is equivalent but has different formatting rules
+and reverses the order of argumetents.
+
+To compile a `<file>.s` assembly file, use
+```
+gcc -m32 <file>.s -o <exe>
+```
+and then you can run it with `./<exe>`.
+
+(You can omit the `-m32` option in these commands if you want to use 64-bit
+assembly, but I was following along with Sandler's code, which is 32-bit - as
+are most currently available compiler and assembly language resources).
