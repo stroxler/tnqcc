@@ -1,12 +1,11 @@
 open OUnit2
-open Tnqcc
-open Ast
+open Tnqcc.Ast
 
 
 let parse_tcase code expected_ast =
-  let actual_ast = parse @@ lex code in
+  let actual_ast = Tnqcc.parse @@ Tnqcc.Lex.lex_string code in
   (fun _ ->
-     assert_equal expected_ast actual_ast ~printer:Ast.show_prog)
+     assert_equal expected_ast actual_ast ~printer:show_prog)
 
 let tests = [
   "can parse a single, simple function" >:: parse_tcase
@@ -15,8 +14,9 @@ let tests = [
         DefFn {
           annot = IntAnnot; name = Id "main";
           body = Some [
-              Statement (Return (Lit (Int 0)));
-            ]
+              Statement (Return (Lit (Int 0)), Line 2);
+            ];
+          line = Line 1;
         };
       ]);
   "can parse multiple simple functions" >:: parse_tcase
@@ -25,14 +25,16 @@ let tests = [
         DefFn {
           annot = IntAnnot; name = Id "main";
           body = Some [
-              Statement (Return (Lit (Int 55)));
-            ]
+              Statement (Return (Lit (Int 55)), Line 1);
+            ];
+          line = Line 1;
         };
         DefFn {
           annot = IntAnnot; name = Id "cool";
           body = Some [
-              Statement (Return (Lit (Int 10)));
-            ]
+              Statement (Return (Lit (Int 10)), Line 3);
+            ];
+          line = Line 3;
         };
       ]);
 ]

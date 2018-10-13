@@ -1,6 +1,6 @@
 (library
   (name tnqcc)
-  (libraries base str)
+  (libraries core base str)
   (preprocess
     (pps
      ppx_deriving.show))

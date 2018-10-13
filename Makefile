@@ -26,3 +26,7 @@ test:
 utop:
 	dune utop src
 
+build:
+	dune build app/cli.exe
+
+# Can run with dune run app/cli.exe -- ARGS

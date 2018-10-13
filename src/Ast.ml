@@ -11,6 +11,9 @@
    ```
    *)
 
+type line = Line of int
+  [@@deriving show]
+
 (* literal values *)
 type lit =
   | Int of int
@@ -38,7 +41,7 @@ type def_var = DefVar of {
   }
   [@@deriving show]
 
-(* statements *)
+(* statements and block items. Note the need for recursive declarations *)
 type statement =
   | Block of block
   | Return of expr
@@ -48,18 +51,20 @@ and block =
   block_item list
   [@@deriving show]
 
+(* block items are the lowest-level thing with a line number *)
 and block_item =
-  | Statement of statement
-  | Definition of def_var
+  | Statement of statement * line
+  | Definition of def_var * line
   [@@deriving show]
 
 
-(* function definitions *)
+(* function definitions - these have a line number *)
 type def_fn = DefFn of {
     annot: annot;
     name: id;
     (* TODO add params *)
     body: block option;
+    line: line;
   }
   [@@deriving show]
 

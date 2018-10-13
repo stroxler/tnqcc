@@ -7,5 +7,7 @@ depends: [
   "dune" {build}
   # the str package s built-in
   "base"
+  "core"
   "ppx_deriving"
+  "cmdliner"
 ]

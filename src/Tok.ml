@@ -1,4 +1,10 @@
 type token =
+  (* having an explicit EOF token isn't really needed for a
+     functional compiler if we don't care about error messages,
+     but it makes parsing with line numbers on errors much easier
+     because you can always assume there's a next token and
+     corresponding line number *)
+  | EOF
   (* delimiter symbols *)
   | LBRACE
   | RBRACE
@@ -14,6 +20,9 @@ type token =
   | ID of string
   [@@deriving show]
 
-type t = token
+type pair = token * int
+  [@@deriving show]
 
-let show_tokens = Util.show_list show_token
+type t = pair
+
+let show_tokens = Util.show_list show_pair
