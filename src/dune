@@ -3,6 +3,7 @@
   (libraries core base str)
   (preprocess
     (pps
-     ppx_deriving.show))
+     ppx_deriving.show
+     ppx_deriving.eq))
   (synopsis "Trox's not-quite-C compiler")
   )

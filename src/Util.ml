@@ -25,3 +25,14 @@ let map_line_nos inx ~(f : int -> string -> 'a) =
       i := !i + 1;
       out
   )
+
+type os_type =
+    OSX | Linux
+    [@@deriving eq]
+
+let current_os =
+  let exitcode = Sys.command
+      "bash -c 'if [[ $(uname -a) =~ Darwin.* ]]; then exit 1; fi'" in
+  if exitcode = 1
+  then OSX
+  else Linux

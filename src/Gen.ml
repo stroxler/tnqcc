@@ -21,10 +21,16 @@ and gen_statement l s = match s with
     mov_cmd ^ "\n" ^ ret_cmd
   | bad -> failwith @@ emsg l "gen_statement" @@ show_statement bad
 
+(* Linux and osx have different function label conventions *)
 let gen_fn = function
   | DefFn {annot=_; name=Id name; body=Some body; line=_} ->
-    let decl = Printf.sprintf "\t.globl %s" name in
-    let label = Printf.sprintf "%s:" name in
+    let mangledName =
+      if Util.equal_os_type Util.current_os Util.Linux
+      then name
+      else "_" ^ name
+    in
+    let decl = Printf.sprintf "\t.globl %s" mangledName in
+    let label = Printf.sprintf "%s:" mangledName in
     decl ^ "\n" ^ label ^ "\n" ^ (gen_block body) ^ "\n\n"
   | DefFn {annot=_; name=_; body=None; line=_; } ->
     ""

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -o pipefail
+set -e
+set -x
+this_dir="$( dirname "${BASH_SOURCE[0]}" )"
+
+compiler="$this_dir"/_build/default/app/cli.exe
+
+base="${1%.*}"
+assembly=$base".s"
+
+"$compiler" gen -i "${base}.c" -o "${base}.s"
+if [[ $? != 0 ]]; then
+    exit 1
+fi
+
+gcc -m32 "${base}.s" -o "$base"
+
+rm "${base}.s"
