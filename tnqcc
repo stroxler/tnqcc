@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -o pipefail
 set -e
-set -x
+## set -x
 this_dir="$( dirname "${BASH_SOURCE[0]}" )"
 
 compiler="$this_dir"/_build/default/app/cli.exe

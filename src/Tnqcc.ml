@@ -26,9 +26,9 @@ let run
     | "-" -> Core.In_channel.stdin
     | filename -> Core.In_channel.create filename
   in
+  let result = cmd inx in
   let outx = match out_path with
     | "-" -> Core.Out_channel.stdout
     | filename -> Core.Out_channel.create filename
   in
-  let result = cmd inx in
   Core.Out_channel.output_string outx result

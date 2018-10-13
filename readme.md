@@ -17,7 +17,74 @@ Sandler's
    as I do early steps
  - I'm useing Jane Street `Base` instead of `Batteries`
    as my standard library
- - 
+
+# Running things
+
+## Setup
+
+First install opam and the build dependencies. On OSX, you
+can do
+```
+brew install opam fswatch
+opam install -y dune merline ocp-indent utop
+```
+
+Next, pin this package and install dependencies. There's
+already a command for this in the makefile, so you can just run:
+```
+make opam-deps
+```
+
+## Running: interactive, unit tests, creating/running executable
+
+Now, you can get an interactive shell to play with the code via
+```
+make utop
+```
+run the tests in a loop that watches the code via
+```
+make test
+```
+and build the executable via
+```
+make build
+```
+
+You can run the executable (which has subcommands `lex`, `parse`, and `gen`)
+by running
+```
+./_build/app/cli.exe [COMMAND] [ARGS]
+```
+(and using `--help` to discover the args).
+
+## The tnqcc executable
+
+There's a script, `./tnqcc`, that wraps the `gen` functionality in a shell
+script which takes the path to a `*.c` file as it's only argument, generates
+a `*.s` file, and calls `gcc` to produce a binary. This script is compatible
+with Nora Sandler's
+[write_a_c_compiler](https://github.com/nlsandler/write_a_c_compiler)
+compiler integration test suite.
+
+### Running the integ test suite
+
+If you either clone the `write_a_c_compiler` code into an adjacent directory -
+e.g. by running
+```
+cd ..
+git clone https://github.com/nlsandler/write_a_c_compiler
+```
+- or clone it into an arbitrary directory and set the `WACC_DIR` environment
+variable then you can run the test suite by running
+```
+./run_wacc_tests.sh
+```
+
+I modified both the `write_a_c_compiler` script and my own script to take
+as arguments the number of steps to run; as of this commit only the first
+step is working. I made a PR to upstream; for now you can use the `num-stages`
+branch of `stroxler/write_a_c_compiler` if you want to test just one stage.
+
 
 # General commentary
 
@@ -61,3 +128,4 @@ and then you can run it with `./<exe>`.
 (You can omit the `-m32` option in these commands if you want to use 64-bit
 assembly, but I was following along with Sandler's code, which is 32-bit - as
 are most currently available compiler and assembly language resources).
+
