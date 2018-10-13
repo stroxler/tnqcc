@@ -12,6 +12,14 @@ let id_or_kw_token str =
   match str with
   | "return" -> KW_RETURN
   | "int" -> KW_INT
+  | "char" -> KW_CHAR
+  | "if" -> KW_IF
+  | "else" -> KW_ELSE
+  | "for" -> KW_FOR
+  | "do" -> KW_DO
+  | "while" -> KW_WHILE
+  | "break" -> KW_BREAK
+  | "continue" -> KW_CONTINUE
   | _ -> ID str
 
 
@@ -44,11 +52,30 @@ let lex_complex_token lineno code =
 let rec go_lex lineno code tokens =
   match code with
   | [] -> List.rev tokens
-  | '{'::rest -> go_lex lineno rest (LBRACE::tokens)
-  | '}'::rest -> go_lex lineno rest (RBRACE::tokens)
-  | '('::rest -> go_lex lineno rest (LPAREN::tokens)
-  | ')'::rest -> go_lex lineno rest (RPAREN::tokens)
-  | ';'::rest -> go_lex lineno rest (SEMICOL::tokens)
+  | '{'::rest ->      go_lex lineno rest (LBRACE::tokens)
+  | '}'::rest ->      go_lex lineno rest (RBRACE::tokens)
+  | '('::rest ->      go_lex lineno rest (LPAREN::tokens)
+  | ')'::rest ->      go_lex lineno rest (RPAREN::tokens)
+  | ';'::rest ->      go_lex lineno rest (SEMICOL::tokens)
+  | '='::'='::rest -> go_lex lineno rest (OP_DEQ::tokens)
+  | '!'::'='::rest -> go_lex lineno rest (OP_NEQ::tokens)
+  | '='::rest ->      go_lex lineno rest (OP_SEQ::tokens)
+  | '>'::'='::rest -> go_lex lineno rest (OP_GEQ::tokens)
+  | '<'::'='::rest -> go_lex lineno rest (OP_LEQ::tokens)
+  | '>'::rest ->      go_lex lineno rest (OP_GT::tokens)
+  | '<'::rest ->      go_lex lineno rest (OP_LT::tokens)
+  | '!'::rest ->      go_lex lineno rest (OP_BANG::tokens)
+  | '+'::rest ->      go_lex lineno rest (OP_PLUS::tokens)
+  | '-'::rest ->      go_lex lineno rest (OP_MINUS::tokens)
+  | '*'::rest ->      go_lex lineno rest (OP_STAR::tokens)
+  | '/'::rest ->      go_lex lineno rest (OP_DIV::tokens)
+  | '%'::rest ->      go_lex lineno rest (OP_MOD::tokens)
+  | '&'::'&'::rest -> go_lex lineno rest (OP_DAND::tokens)
+  | '|'::'|'::rest -> go_lex lineno rest (OP_DOR::tokens)
+  | '&'::rest ->      go_lex lineno rest (OP_SAND::tokens)
+  | '|'::rest ->      go_lex lineno rest (OP_SOR::tokens)
+  | '~'::rest ->      go_lex lineno rest (OP_TILDE::tokens)
+  | '^'::rest ->      go_lex lineno rest (OP_XOR::tokens)
   | c::more ->
     if Char.is_whitespace c
     then go_lex lineno more tokens

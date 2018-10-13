@@ -45,6 +45,73 @@ let tests = [
       (SEMICOL,    1);
       (EOF,        1);
     ];
+  "lexes unary operators" >:: lex_tcase
+    "-1; ~15; !0; ^16;"
+    [
+      (OP_MINUS,   1);
+      (LIT_INT 1,  1);
+      (SEMICOL,    1);
+      (OP_TILDE,   1);
+      (LIT_INT 15, 1);
+      (SEMICOL,    1);
+      (OP_BANG,    1);
+      (LIT_INT 0,  1);
+      (SEMICOL,    1);
+      (OP_XOR,     1);
+      (LIT_INT 16, 1);
+      (SEMICOL,    1);
+      (EOF,        1);
+    ];
+  "lexes more keywords" >:: lex_tcase
+    "if else return continue break do while for"
+    [
+      (KW_IF,       1);
+      (KW_ELSE,     1);
+      (KW_RETURN,   1);
+      (KW_CONTINUE, 1);
+      (KW_BREAK,    1);
+      (KW_DO,       1);
+      (KW_WHILE,    1);
+      (KW_FOR,      1);
+      (EOF,        1);
+    ];
+  "lexes binary operators" >:: lex_tcase
+    "1+1; 1*1; 1& 1; 1 &&1; 1|1; 1 || 1; 1%1; 1 /1;"
+    [
+      (LIT_INT 1,  1);
+      (OP_PLUS,    1);
+      (LIT_INT 1,  1);
+      (SEMICOL,    1);
+      (LIT_INT 1,  1);
+      (OP_STAR,    1);
+      (LIT_INT 1,  1);
+      (SEMICOL,    1);
+      (LIT_INT 1,  1);
+      (OP_SAND,    1);
+      (LIT_INT 1,  1);
+      (SEMICOL,    1);
+      (LIT_INT 1,  1);
+      (OP_DAND,    1);
+      (LIT_INT 1,  1);
+      (SEMICOL,    1);
+      (LIT_INT 1,  1);
+      (OP_SOR,     1);
+      (LIT_INT 1,  1);
+      (SEMICOL,    1);
+      (LIT_INT 1,  1);
+      (OP_DOR,     1);
+      (LIT_INT 1,  1);
+      (SEMICOL,    1);
+      (LIT_INT 1,  1);
+      (OP_MOD,     1);
+      (LIT_INT 1,  1);
+      (SEMICOL,    1);
+      (LIT_INT 1,  1);
+      (OP_DIV,     1);
+      (LIT_INT 1,  1);
+      (SEMICOL,    1);
+      (EOF,        1);
+    ];
   "lexes a simple function" >:: lex_tcase
     "int main() { return 0; }"
     [
