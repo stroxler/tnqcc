@@ -70,7 +70,7 @@ let parse_fn (fn_name: string) (fn_tokens: T.t list) (lineno: int) =
 
 let rec parse_fn_defs (tokens: T.t list) (parsed_fns: def_fn list) =
   match tokens with
-  | (T.EOF, _) ::_ -> List.rev parsed_fns
+  | (T.EOF, _) :: _ -> List.rev parsed_fns
   | (T.KW_INT, lineno) :: (T.ID name, _) :: (T.LPAREN, _) :: more_tokens ->
     let fn, rest = parse_fn name more_tokens lineno in
     parse_fn_defs rest (fn::parsed_fns)
