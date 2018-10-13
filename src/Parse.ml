@@ -11,9 +11,21 @@ let emsg (context: string) (tokens: T.t list) =
                  lineno context tokens_str
 
 
-let parse_expr tokens = match tokens with
+let rec parse_expr tokens = match tokens with
+  (* unary operators *)
+  | (T.OP_MINUS, _) :: more ->
+    let inner, rest = parse_expr more in
+    UnaryOp (Neg, inner), rest
+  | (T.OP_BANG, _) :: more ->
+    let inner, rest = parse_expr more in
+    UnaryOp (LNot, inner), rest
+  | (T.OP_TILDE, _) :: more ->
+    let inner, rest = parse_expr more in
+    UnaryOp (BNot, inner), rest
+  (* literals *)
   | (T.LIT_INT n, _) :: rest ->
     Lit (Int n), rest
+  (* parse failure *)
   | bad_tokens -> failwith @@ emsg "parse_expr" bad_tokens
 
 

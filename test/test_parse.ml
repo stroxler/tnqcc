@@ -37,4 +37,21 @@ let tests = [
           line = Line 3;
         };
       ]);
+  "can parse unary operators" >:: parse_tcase
+    "int main() { return -!~1; }"
+    (Prog [
+        DefFn {
+          annot = IntAnnot; name = Id "main";
+          body = Some [
+              Statement (
+                Return (
+                  UnaryOp (Neg, (UnaryOp (LNot, (UnaryOp (BNot,
+                                                          Lit (Int 1))))))
+                ),
+                Line 1
+              );
+            ];
+          line = Line 1;
+        };
+      ]);
 ]

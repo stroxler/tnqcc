@@ -23,9 +23,16 @@ type lit =
 type id = Id of string
   [@@deriving show]
 
+type unary_op =
+  | LNot
+  | BNot
+  | Neg
+  [@@deriving show]
+
 (* expressions (evaluate to values) *)
 type expr =
   | Lit of lit
+  | UnaryOp of unary_op * expr
   [@@deriving show]
 
 (* type annotations (used in definitions) *)
