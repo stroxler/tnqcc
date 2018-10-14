@@ -1,3 +1,5 @@
+open Core
+
 type token =
   (* having an explicit EOF token isn't really needed for a
      functional compiler if we don't care about error messages,
@@ -48,11 +50,22 @@ type token =
   | LIT_INT of int
   (* user-defined things *)
   | ID of string
-  [@@deriving show]
+  [@@deriving show, ord, sexp]
 
 type pair = token * int
   [@@deriving show]
 
 type t = pair
-
+type tokens = pair list
 let show_tokens = Util.show_list show_pair
+
+
+module Token = struct
+  module T = struct
+    type t = token
+    let compare = compare_token
+    let sexp_of_t = sexp_of_token
+  end
+  include T
+  include Base.Comparator.Make(T)
+end
