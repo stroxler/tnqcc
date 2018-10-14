@@ -3,30 +3,188 @@ open Ast
 
 module T = Tok
 
+(* General references:
+   https://www.cs.dartmouth.edu/~mckeeman/cs48/references/c.html
+   https://www.lysator.liu.se/c/ANSI-C-grammar-y.html
+   ...
+   note that the binary operations are defined left-recursively,
+   but the approach we are using (which is effectively right-recursive
+   parsing due to the fact that our recursive descent parser cannot
+   be left-recursive, but left-associative AST construction) is equivalent,
+   for the subset of the grammar that we implement.
+*)
 
 let emsg (context: string) (tokens: T.t list) =
   let _, lineno = List.hd_exn tokens in
   let tokens_str = T.show_tokens @@ List.take tokens 10 in
   Printf.sprintf "Parse error, line %d:\nError context: %s\ntokens: %s"
-                 lineno context tokens_str
+    lineno context tokens_str
+
+(* The hardest thing in C parsing is using recursive descent to parse
+   binary expressions of left-associative operators. The approach we use here is
+   to organize them by precedence, so that we parse expressions of operators
+   with lower precedence as a bunch of operator-joined expressions of operators
+   with higher precedence.
+
+   The first function below, `parse_bin_expr_one_level`, encapsulates this idea
+   by saying that we're going to parse expressions in terms of operators at some
+   precedence level left-associatively, where each term is an expression
+   composed of either higher-precedence operators or "other things" such as
+   parenthesized expressions, unary operators, etc.
+
+   Because in C almost all of the binary operators have precedence adjacent to
+   one another:
+    - all of them except assignment-related operations have precedence
+      higher than the ternary operator
+    - all of them except lookups (array indexing "[]" and struct lookups
+      "." and "->" have precedence lower than any unary operator
+   So except for assignment and lookups, we can automate most of the operator
+   parsing by forming a lookup table by level.
+
+   This is what `parse_bin_expr_by_prec` does: we create a `binary_op_by_prec`
+   map from precedence to a map from token to operator, and this allows us
+   to chain together a bunch of binary operator parsing levels by:
+     - starting at low precedence
+     - for our term parser, just use the next highest precedence
+     - use some innermost parser (e.g. unary expressions) once we run out of
+       precedences
+   An added benefit is seeing how Base.Map works with user-defined types
+   (note that we hadded to add a Tok.Token module)
+
+   Note that I'm defining precedence so that low precedence means late-binding,
+   e.g. + is lower than * ... some references list them the opposite way.
+
+   Also note that the approach we use here is relatively easy to extend to
+   user-defined operators with user-defined precedence (as in haskell), since we
+   are storing the operators and precedences as data structures which could be
+   made environment-dependent. User-defined associativity would be a bit more
+   involved, but if `parse_bin_expr` built up a list of terms instead of
+   creating the AST on the fly, then we could group them dynamically based on
+   operator associativity rules.
+*)
 
 
-let rec parse_expr tokens = match tokens with
-  (* unary operators *)
-  | (T.OP_MINUS, _) :: more ->
-    let inner, rest = parse_expr more in
-    UnaryOp (Neg, inner), rest
-  | (T.OP_BANG, _) :: more ->
-    let inner, rest = parse_expr more in
-    UnaryOp (LNot, inner), rest
-  | (T.OP_TILDE, _) :: more ->
-    let inner, rest = parse_expr more in
-    UnaryOp (BNot, inner), rest
-  (* literals *)
-  | (T.LIT_INT n, _) :: rest ->
-    Lit (Int n), rest
-  (* parse failure *)
-  | bad_tokens -> failwith @@ emsg "parse_expr" bad_tokens
+let mk_binary_ops_by_prec
+    (ops_alists : ((T.token * binary_op) list) list) =
+  let mk_binary_ops alist =
+    Map.of_alist_exn (module T.Token) alist in
+  let zipper i alist =
+    i, (mk_binary_ops alist) in
+  Map.of_alist_exn (module Int) @@ List.mapi ~f:zipper ops_alists
+
+
+(* See https://en.cppreference.com/w/c/language/operator_precedence
+   (which lists preferences in the opposite order) *)
+let binary_ops_by_prec = mk_binary_ops_by_prec [
+    (* assignments would go here *)
+    [(T.OP_DOR,    LOr);];
+    [(T.OP_DAND,  LAnd);];
+    [(T.OP_SOR,    BOr);];
+    [(T.OP_XOR,    XOr);];
+    [(T.OP_SAND,  BAnd);];
+    [
+      (T.OP_DEQ,   Eq);
+      (T.OP_NEQ,  Neq);
+    ];
+    [
+      (T.OP_LEQ,   Leq);
+      (T.OP_GEQ,   Geq);
+      (T.OP_LT,    Lt);
+      (T.OP_GT,    Gt);
+    ];
+    (* bit shifts would go here - I'm not currently implementing
+       them *)
+    [
+      (T.OP_PLUS,  Add);
+      (T.OP_MINUS, Sub);
+    ];
+    [
+      (T.OP_STAR,  Mult);
+      (T.OP_DIV,   Div);
+      (T.OP_MOD,   Mod);
+    ];
+    (* -- *)
+    (* various unary operators go here, but we don't
+       parse them using the same code so they don't go here.
+       type casts - which seem tricky to parse - also go here. *)
+    (* -- *)
+    (* stuff that binds higher than unary operators, such as
+       array indexing, pointer/struct lookups, postfix operators,
+       and parentheses go here. The pointer/struct lookups would
+       in fact be parsed as binary operations, but we wouldn't
+       use the `parse_bin_expr_by_prec` function because there
+       are non-binary operators with precedence "sandwiched"
+       in between *)
+  ]
+
+let parse_bin_expr_one_level
+    (parse_inner: T.tokens -> expr * T.tokens)
+    (matching_ops: (T.token, binary_op, 'cmp) Map.t)
+    (tokens: T.tokens) =
+  (* get the first inner expression. We don't expect this to fail. *)
+  let first_expr, after_first = parse_inner tokens in
+  (* now recursively check whether we're parsing an operator at the
+     same precedence level (one in `matching_ops`), and build a
+     left-associative AST from the inner expressions if so *)
+  let rec parse_all_terms
+      (left_expr: expr)
+      (after_left: T.tokens) =
+    let next_token, _ = List.hd_exn after_left (* EOF makes head_exn safe *) in
+    let operator = Map.find matching_ops next_token in
+    match operator with
+    | None ->
+      left_expr, after_left
+    | Some op ->
+      let after_op = List.tl_exn after_left in
+      let right_expr, after_right = parse_inner after_op in
+      let new_expr = BinaryOp (op, left_expr, right_expr) in
+      parse_all_terms new_expr after_right
+  in
+  parse_all_terms first_expr after_first
+
+let rec parse_bin_expr_by_prec
+    (prec: int)
+    (after_highest_prec: (T.tokens -> expr * T.tokens))
+    (tokens: T.tokens) =
+  match Map.find binary_ops_by_prec prec with
+  | None ->
+    after_highest_prec tokens
+  | Some matching_ops ->
+    let next_prec = prec + 1 in
+    let parse_inner = parse_bin_expr_by_prec next_prec after_highest_prec in
+    parse_bin_expr_one_level parse_inner matching_ops tokens
+
+
+let parse_expr tokens =
+  let rec parse_binary tokens =
+    parse_bin_expr_by_prec 0 parse_unary tokens
+  and parse_unary = function
+    | (T.OP_MINUS, _) :: more ->
+      let inner, rest = parse_unary more in
+      UnaryOp (Neg, inner), rest
+    | (T.OP_BANG, _) :: more ->
+      let inner, rest = parse_unary more in
+      UnaryOp (LNot, inner), rest
+    | (T.OP_TILDE, _) :: more ->
+      let inner, rest = parse_unary more in
+      UnaryOp (BNot, inner), rest
+    | tokens -> parse_innermost tokens
+  and parse_innermost = function
+    (* literals (constants) *)
+    | (T.LIT_INT n, _) :: rest ->
+      Lit (Int n), rest
+    (* parentheses *)
+    | (T.LPAREN, _) :: after_lparen ->
+      let expr, after_exp = parse_binary after_lparen in
+      (match after_exp with
+       | (T.RPAREN, _) :: after_rparen ->
+         expr, after_rparen
+       | bad_tokens -> failwith @@ emsg "expected ) parsing expr" bad_tokens
+      )
+    (* parse failure *)
+    | bad_tokens -> failwith @@ emsg "failed to parse expr" bad_tokens
+  in
+  parse_binary tokens
 
 
 
@@ -77,7 +235,7 @@ let parse_fn (fn_name: string) (fn_tokens: T.t list) (lineno: int) =
       body   = body;
       line   = Line lineno;
     } in
-   (fn, rest)
+  (fn, rest)
 
 
 let rec parse_fn_defs (tokens: T.t list) (parsed_fns: def_fn list) =

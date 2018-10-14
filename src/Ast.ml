@@ -23,6 +23,25 @@ type lit =
 type id = Id of string
   [@@deriving show]
 
+type binary_op =
+  | Add
+  | Sub
+  | Mult
+  | Div
+  | Mod
+  | LAnd
+  | LOr
+  | BAnd
+  | BOr
+  | XOr
+  | Eq
+  | Neq
+  | Leq
+  | Geq
+  | Lt
+  | Gt
+  [@@deriving show, eq]
+
 type unary_op =
   | LNot
   | BNot
@@ -33,6 +52,7 @@ type unary_op =
 type expr =
   | Lit of lit
   | UnaryOp of unary_op * expr
+  | BinaryOp of binary_op * expr * expr
   [@@deriving show]
 
 (* type annotations (used in definitions) *)

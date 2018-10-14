@@ -4,6 +4,8 @@
   (preprocess
     (pps
      ppx_deriving.show
-     ppx_deriving.eq))
+     ppx_deriving.eq
+     ppx_deriving.ord
+     ppx_sexp_conv))
   (synopsis "Trox's not-quite-C compiler")
   )
