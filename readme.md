@@ -112,7 +112,7 @@ with the `dune` build system by sticking to vanilla
 To compile a simple example, when figuring out what
 assembly language to generate, use this command:
 ```
-gcc -m32 -S -O3 -fno-asynchronous-unwind-tables <file.c>
+gcc -m32 -S -O0 -fno-asynchronous-unwind-tables <file.c>
 ```
 This will generate a `<file>.s` file of gcc-style 32 bit
 assembly. Note that there's an altenative syntax, nasm,

@@ -40,7 +40,17 @@ type binary_op =
   | Geq
   | Lt
   | Gt
-  [@@deriving show, eq]
+  [@@deriving show, eq, ord, sexp]
+
+module BinaryOp = struct
+  module T = struct
+    type t = binary_op
+    let compare = compare_binary_op
+    let sexp_of_t = sexp_of_binary_op
+  end
+  include T
+  include Base.Comparator.Make(T)
+end
 
 type unary_op =
   | LNot
