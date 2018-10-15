@@ -1,5 +1,9 @@
 .PHONY: test
 
+clean:
+	rm -rf _build
+	find . -name .merlin | xargs rm
+
 deps: opam-deps dune-deps
 
 # - tell opam about this package

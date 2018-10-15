@@ -1,7 +1,7 @@
 open Core
 
 let show_list (print_item: 'a -> string) (the_list: 'a list) =
-  "[\n\t" ^ (String.concat ~sep: ",\n\t" @@ List.map ~f:print_item the_list) ^ "\n]"
+  "[" ^ (String.concat ~sep: "; " @@ List.map ~f:print_item the_list) ^ "]"
 
 
 let map_lines (inx: In_channel.t) ~(f: string -> 'a) =

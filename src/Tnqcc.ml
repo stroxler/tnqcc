@@ -5,6 +5,7 @@ module Ast = Ast
 
 module Parse = Parse
 module Lex = Lex
+module Gen = Gen
 
 let lex_chan   x = Lex.lex_chan   x |> Tok.show_tokens
 

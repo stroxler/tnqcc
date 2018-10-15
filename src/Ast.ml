@@ -60,7 +60,9 @@ type unary_op =
 
 (* expressions (evaluate to values) *)
 type expr =
+  | Assign of id * expr
   | Lit of lit
+  | Reference of id
   | UnaryOp of unary_op * expr
   | BinaryOp of binary_op * expr * expr
   [@@deriving show]
@@ -73,7 +75,7 @@ type annot =
 (* variable definitions *)
 type def_var = DefVar of {
     annot: annot;
-    name: id;
+    id: id;
     init: expr option;
   }
   [@@deriving show]
@@ -81,6 +83,7 @@ type def_var = DefVar of {
 (* statements and block items. Note the need for recursive declarations *)
 type statement =
   | Block of block
+  | Expr of expr option
   | Return of expr
   [@@deriving show]
 

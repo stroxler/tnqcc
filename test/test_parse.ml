@@ -9,7 +9,7 @@ let prog_tcase code expected_ast =
 
 let expr_tcase code expected_expr =
   let full_code = "int main () { return " ^ code ^ " ; }" in
-  let epxected_ast = Prog [
+  let epxected_ast = (Prog [
       DefFn {
         annot = IntAnnot; name = Id "main";
         body = Some [
@@ -22,13 +22,32 @@ let expr_tcase code expected_expr =
           ];
         line = Line 1;
       };
-    ]
+    ])
+  in prog_tcase full_code epxected_ast
+
+let block_item_tcase code expected_item =
+  let full_code = "int main () { " ^ code ^ "; return 0; }" in
+  let epxected_ast = (Prog [
+      DefFn {
+        annot = IntAnnot; name = Id "main";
+        body = Some [
+            expected_item;
+            Statement (
+              Return (
+                Lit (Int 0)
+              ),
+              Line 1
+            );
+          ];
+        line = Line 1;
+      };
+    ])
   in prog_tcase full_code epxected_ast
 
 
 
-
 let tests = [
+
   "can parse a single, simple function" >:: prog_tcase
     "int main() \n { \t return 0; \n } \n"
     (
@@ -42,6 +61,7 @@ let tests = [
         };
       ]
     );
+
   "can parse multiple simple functions" >:: prog_tcase
     "int main() { return 55; }\n\n int cool() { return 10; }"
     (
@@ -62,6 +82,33 @@ let tests = [
         };
       ]
     );
+
+  "can parse variable definitions with no initializer" >:: block_item_tcase
+    "int x"
+    (
+      Definition (
+        DefVar {
+          annot = IntAnnot;
+          id = Id "x";
+          init = None;
+        },
+        Line 1
+      )
+    );
+
+  "can parse variable definitions with an initializer" >:: block_item_tcase
+    "int x = 1 + 1"
+    (
+      Definition (
+        DefVar {
+          annot = IntAnnot;
+          id = Id "x";
+          init = Some (BinaryOp (Add, Lit (Int 1), Lit (Int 1)));
+        },
+        Line 1
+      )
+    );
+
   "can parse unary operators" >:: expr_tcase
     "-!~1"
     (
@@ -70,6 +117,7 @@ let tests = [
         (UnaryOp (LNot, (UnaryOp (BNot, Lit (Int 1)))))
       )
     );
+
   "can parse binary operators, part 1" >:: expr_tcase
     "((1 +2  *3))"
     (
@@ -79,6 +127,7 @@ let tests = [
         BinaryOp (Mult, Lit (Int 2), Lit (Int 3))
       )
     );
+
   "can parse binary operators, part 2" >:: expr_tcase
     "((1 +2)  *3)"
     (
@@ -88,6 +137,7 @@ let tests = [
         Lit (Int 3)
       )
     );
+
   "can parse binary operators, part 3" >:: expr_tcase
     "0 || 1 & 5 && (1 +2)"
     (
@@ -101,6 +151,7 @@ let tests = [
         )
       )
     );
+
   "is left-associative on binary operators" >:: expr_tcase
     "1 % 2 % 3"
     (
@@ -114,6 +165,7 @@ let tests = [
         Lit (Int 3)
       )
     );
+
   "can parse mixed binary and unary ops" >:: expr_tcase
     "((1 +2)  *-3)"
     (
@@ -123,4 +175,23 @@ let tests = [
         UnaryOp (Neg, Lit (Int 3))
       )
     );
+
+  (* the desired precedence here is higher than unary operations, but
+     lower than atoms. Obviously it's not a great idea to actually write C
+     code like this, but we do want to check the logic *)
+  "can parse assignment operators, with the right precedence" >:: expr_tcase
+  "1 + -(x = 5 +5)"
+  (
+    BinaryOp (
+      Add,
+      Lit (Int 1),
+      UnaryOp (
+        Neg,
+        Assign (
+          Id "x",
+          BinaryOp (Add, Lit (Int 5), Lit (Int 5))
+        )
+      )
+    )
+  );
 ]
