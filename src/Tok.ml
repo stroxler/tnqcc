@@ -35,6 +35,8 @@ type token =
   | OP_SOR
   | OP_TILDE  (* ~ is bitwise complement *)
   | OP_XOR
+  | OP_QUESTION
+  | OP_COLON
   (* keywords *)
   | KW_RETURN
   | KW_INT

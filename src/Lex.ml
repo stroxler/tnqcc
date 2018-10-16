@@ -76,6 +76,8 @@ let rec go_lex lineno code tokens =
   | '|'::rest ->      go_lex lineno rest (OP_SOR::tokens)
   | '~'::rest ->      go_lex lineno rest (OP_TILDE::tokens)
   | '^'::rest ->      go_lex lineno rest (OP_XOR::tokens)
+  | '?'::rest ->      go_lex lineno rest (OP_QUESTION::tokens)
+  | ':'::rest ->      go_lex lineno rest (OP_COLON::tokens)
   | c::more ->
     if Char.is_whitespace c
     then go_lex lineno more tokens

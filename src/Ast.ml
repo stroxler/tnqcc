@@ -65,6 +65,7 @@ type expr =
   | Reference of id
   | UnaryOp of unary_op * expr
   | BinaryOp of binary_op * expr * expr
+  | TrinaryOp of expr * expr * expr
   [@@deriving show]
 
 (* type annotations (used in definitions) *)
@@ -85,6 +86,7 @@ type statement =
   | Block of block
   | Expr of expr option
   | Return of expr
+  | Conditional of expr * statement * statement
   [@@deriving show]
 
 and block =

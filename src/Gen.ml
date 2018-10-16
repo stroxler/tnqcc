@@ -43,13 +43,13 @@ let emsg (line: line) (context: string) (display: string) =
     lineno context display
 
 let rec gen_block: Context.context -> block -> (Context.context * string) =
-  fun parent_context body ->
-    let initial_context = Context.add_slevel parent_context in
-    let ending_context, code_lines =
-      List.fold_map ~init: initial_context ~f:gen_block_item body in
+  fun parent_ctx body ->
+    let initial_ctx = Context.add_slevel parent_ctx in
+    let ending_ctx, code_lines =
+      List.fold_map ~init: initial_ctx ~f:gen_block_item body in
     let code = String.concat code_lines in
-    let final_context = Context.remove_slevel ending_context in
-    final_context, code
+    let final_ctx = Context.remove_slevel ending_ctx in
+    final_ctx, code
 
 (** gen_block_item returns `context * code`
     because we have to be able to make vars and the ebp offset
@@ -59,69 +59,101 @@ let rec gen_block: Context.context -> block -> (Context.context * string) =
     Also, block items (statements and definitions) get newlines, whereas
     expressiions do not.
 *)
-and gen_block_item (context: Context.context) = function
-  | Statement (s, l) -> gen_statement context l s
-  | Definition (d, l) -> gen_definition context l d
+and gen_block_item (ctx: Context.context) = function
+  | Statement (s, l) -> gen_statement ctx l s
+  | Definition (d, l) -> gen_definition ctx l d
 
 (** gen_definition retursn `context * code` because we need to
     make later block_items in the same block able to access defined vars /
     ebp offset levels, and we have to pass up esp offset information to function
     declaration *)
-and gen_definition (initial_context: Context.context) l (d: def_var) =
+and gen_definition (initial_ctx: Context.context) l (d: def_var) =
   let DefVar { id; annot; init} = d in
-  let new_context = Context.add_var l (id, annot) initial_context in
+  let new_ctx = Context.add_var l (id, annot) initial_ctx in
   let code = match init with
     | None ->
       ""
     | Some e ->
-      (gen_assignment new_context id l e) ^ "\n"
+      (gen_assignment new_ctx id l e) ^ "\n"
   in
-  new_context, code
+  new_ctx, code
 
-and gen_assignment (context: Context.context) (Id varname) l e =
-  let ram_loc = Context.find_ram_loc l (Id varname) context in
-  let expr1_cmd = gen_expr (context: Context.context) l e in
+and gen_assignment (ctx: Context.context) (Id varname) l e =
+  let ram_loc = Context.find_ram_loc l (Id varname) ctx in
+  let expr1_cmd = gen_expr ctx l e in
   let mov_cmd = "  movl %eax, " ^ ram_loc in
   (
     expr1_cmd ^ "\n" ^
     mov_cmd
   )
 
-(** gen_stagtement returns `context * code` because we have to be
+(** Generic conditional assembly language construct, which is
+    usable regardless of whether the branches are expressions (as
+    in the ternary operator) or statements (as in conditional
+    statements *)
+and gen_conditional
+    expr_asm branch0_asm branch1_asm =
+  let label_prefix = get_label () in
+  let branch1_label = label_prefix ^ "_branch1" in
+  let finished_label = label_prefix ^ "_finished" in
+  (
+    expr_asm ^ "\n" ^           (* evaluate the if expr *)
+    "  cmpl $0, %eax" ^ "\n" ^  (* compare to false *)
+    "  je " ^ branch1_label ^ "\n" ^
+    branch0_asm ^ "\n" ^
+    "  jmp " ^ finished_label ^ "\n" ^
+    "  " ^ branch1_label ^ ":" ^ "\n" ^
+    branch1_asm ^ "\n" ^
+    "  " ^ finished_label ^ ":"
+  )
+
+
+(** gen_statement returns `context * code` because we have to be
     able to pass esp offset information up to the function declaration
     from any block statement that has variable declarations *)
-and gen_statement (context: Context.context) l s = match s with
+and gen_statement (ctx: Context.context) l s = match s with
   | Expr None ->
-    context, ""
+    ctx, ""
   | Expr (Some e) ->
-    context, (gen_expr context l e) ^ "\n"
+    ctx, (gen_expr ctx l e) ^ "\n"
   | Return e ->
-    let expr_cmd = gen_expr context l e in
+    let expr_cmd = gen_expr ctx l e in
     let close_stack_frame = "  popl	%ebp" in (* see comments on gen_fn for details *)
     let ret_cmd = (
-      let Context ctx = context in
-      match ctx.fn_name with
+      let Context { fn_name; _ } = ctx in
+      match fn_name with
       | Some fname ->
         "  jmp " ^ (get_fn_ret_label fname)
       | None ->
         failwith @@ emsg l "return statement outside function" @@ show_statement s
     ) in
     let code = expr_cmd ^ "\n" ^ close_stack_frame ^ "\n" ^ ret_cmd ^ "\n" in
-    context, code
+    ctx, code
+  | Conditional (e, s0, s1) ->
+    let expr_cmd = gen_expr ctx l e in
+    let ctx0, branch0_cmd = gen_statement ctx l s0 in
+    let ctx1, branch1_cmd = gen_statement ctx0 l s1 in
+    let cmd = gen_conditional expr_cmd branch0_cmd branch1_cmd in
+    ctx1, cmd
   | bad -> failwith @@ emsg l "gen_statement" @@ show_statement bad
 
-and gen_expr (context: Context.context) l e = match e with
+and gen_expr (ctx: Context.context) l e = match e with
   | Assign (the_id, val_expr) ->
-    gen_assignment context the_id l val_expr
+    gen_assignment ctx the_id l val_expr
   | Lit (Int n) ->
     Printf.sprintf "  movl $%d, %s" n "%eax"
   | Reference the_id ->
-    let ram_loc = Context.find_ram_loc l the_id context in
+    let ram_loc = Context.find_ram_loc l the_id ctx in
     Printf.sprintf "  movl %s, %s" ram_loc "%eax"
   | UnaryOp (o, e0) ->
-    gen_unary_expr context l o e0
+    gen_unary_expr ctx l o e0
   | BinaryOp (o, e0, e1) ->
-    gen_binary_expr context l o e0 e1
+    gen_binary_expr ctx l o e0 e1
+  | TrinaryOp (e0, e1, e2) ->
+    gen_conditional
+      (gen_expr ctx l e0)
+      (gen_expr ctx l e1)
+      (gen_expr ctx l e2)
 (* | bad -> failwith @@ emsg l "gen_expr" @@ show_expr bad *)
 (* ^ depending on the stage of development, the
    compiler sometimes tells us there is no unhandled case *)

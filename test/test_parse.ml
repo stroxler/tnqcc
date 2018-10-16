@@ -26,7 +26,7 @@ let expr_tcase code expected_expr =
   in prog_tcase full_code epxected_ast
 
 let block_item_tcase code expected_item =
-  let full_code = "int main () { " ^ code ^ "; return 0; }" in
+  let full_code = "int main () { " ^ code ^ " return 0; }" in
   let epxected_ast = (Prog [
       DefFn {
         annot = IntAnnot; name = Id "main";
@@ -84,7 +84,7 @@ let tests = [
     );
 
   "can parse variable definitions with no initializer" >:: block_item_tcase
-    "int x"
+    "int x;"
     (
       Definition (
         DefVar {
@@ -97,7 +97,7 @@ let tests = [
     );
 
   "can parse variable definitions with an initializer" >:: block_item_tcase
-    "int x = 1 + 1"
+    "int x = 1 + 1;"
     (
       Definition (
         DefVar {
@@ -108,6 +108,39 @@ let tests = [
         Line 1
       )
     );
+
+  "can parse conditional statements with no else" >:: block_item_tcase
+    "if (x == 2) y = 7;"
+    (
+      Statement (
+        Conditional (
+          BinaryOp (Eq, Reference (Id "x"), Lit (Int 2)),
+          Expr ( Some ( Assign (
+              Id "y",
+              Lit (Int 7)
+            ))),
+          Expr None
+        ),
+        (Line 1)
+      )
+    );
+
+  "can parse conditional statements with an else" >:: block_item_tcase
+    "if (x == 2) x = 5; else y = 7;"
+    (
+      Statement (
+        Conditional (
+          BinaryOp (Eq, Reference (Id "x"), Lit (Int 2)),
+          Expr ( Some ( Assign ((Id "x"), Lit (Int 5)))),
+          Expr ( Some ( Assign (
+              Id "y",
+              Lit (Int 7)
+            )))
+        ),
+        (Line 1)
+      )
+    );
+
 
   "can parse unary operators" >:: expr_tcase
     "-!~1"
@@ -180,18 +213,28 @@ let tests = [
      lower than atoms. Obviously it's not a great idea to actually write C
      code like this, but we do want to check the logic *)
   "can parse assignment operators, with the right precedence" >:: expr_tcase
-  "1 + -(x = 5 +5)"
-  (
-    BinaryOp (
-      Add,
-      Lit (Int 1),
-      UnaryOp (
-        Neg,
-        Assign (
-          Id "x",
-          BinaryOp (Add, Lit (Int 5), Lit (Int 5))
+    "1 + -(x = 5 +5)"
+    (
+      BinaryOp (
+        Add,
+        Lit (Int 1),
+        UnaryOp (
+          Neg,
+          Assign (
+            Id "x",
+            BinaryOp (Add, Lit (Int 5), Lit (Int 5))
+          )
         )
       )
-    )
-  );
+    );
+
+  "can parse trinary operators" >:: expr_tcase
+    "x ? y = z : 5"
+    (
+      TrinaryOp (
+        Reference (Id "x"),
+        Assign ((Id "y"), Reference (Id "z")),
+        Lit (Int 5)
+      )
+    );
 ]

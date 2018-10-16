@@ -117,7 +117,7 @@ let binary_ops_by_prec = mk_binary_ops_by_prec [
        in between *)
   ]
 
-let parse_bin_expr_one_level
+let parse_left_associative_binary_onelevel
     ~(parse_inner: T.tokens -> expr * T.tokens)
     ~(matching_ops: (T.token, binary_op, 'cmp) Map.t)
     (tokens: T.tokens) =
@@ -152,10 +152,10 @@ let rec parse_bin_expr_by_prec
   | Some matching_ops ->
     let next_prec = prec + 1 in
     let parse_inner = parse_bin_expr_by_prec next_prec after_highest_prec in
-    parse_bin_expr_one_level
+    parse_left_associative_binary_onelevel
       ~parse_inner ~matching_ops tokens
 
-let parse_expr tokens =
+let parse_expr tokens_ =
   (* Note that assignment is not a binary operator because it is
      right-associative, rather than left-associative, plus it only
      accepts an id on the left hand side *)
@@ -164,7 +164,22 @@ let parse_expr tokens =
     let value, rest = parse_assignment more in
     Assign (Id name, value), rest
   | tokens ->
-    parse_binary tokens
+    parse_trinary tokens
+  and parse_trinary tokens =
+    let left_expr, after_left = parse_binary tokens in
+    match after_left with
+    | (T.OP_QUESTION, _) :: after_question ->
+      let middle_expr, after_middle = parse_assignment after_question in
+      (
+        match after_middle with
+        | (T.OP_COLON, _) :: after_colon ->
+          let right_expr, after_right = parse_trinary after_colon in
+          TrinaryOp(left_expr, middle_expr, right_expr), after_right
+        | _ ->
+          failwith @@ emsg "Expected colon after start of trinary expr" after_middle
+      )
+    | _ ->
+      left_expr, after_left
   and parse_binary tokens =
     parse_bin_expr_by_prec 0 parse_unary tokens
   and parse_unary = function
@@ -196,8 +211,47 @@ let parse_expr tokens =
     (* parse failure *)
     | bad_tokens -> failwith @@ emsg "failed to parse expr" bad_tokens
   in
-  parse_assignment tokens
+  parse_assignment tokens_
 
+
+
+let rec parse_statement = function
+  (* conditional statement *)
+  | (T.KW_IF, _) :: (T.LPAREN, _) :: after_start ->
+    let if_expr, after_if = parse_expr after_start in
+    (
+      match after_if with
+      | (T.RPAREN, _) :: after_rparen ->
+        let first_stmt, after_first = parse_statement after_rparen in
+        (
+          match after_first with
+          | (T.KW_ELSE, _) :: after_else ->
+            let second_stmt, after_second = parse_statement after_else in
+            Conditional(if_expr, first_stmt, second_stmt), after_second
+          | _ ->
+            Conditional(if_expr, first_stmt, Expr None), after_first
+        )
+      | _ -> failwith @@ emsg "expected ) in if" after_if
+    )
+  (* return statement *)
+  | (T.KW_RETURN, _) :: more_tokens ->
+    let value, after_exp = parse_expr more_tokens in
+    (match after_exp with
+     | (T.SEMICOL, _) :: rest ->
+       Return value, rest
+     | _ -> failwith @@ emsg "expected semicolon in return stmt" after_exp
+    )
+  (* empty expression statement *)
+  | (T.SEMICOL, _) :: rest ->
+    Expr None, rest
+  (* nonempty expression statement *)
+  | tokens ->
+    let expr, after_expr = parse_expr tokens in
+    (match after_expr with
+     | (T.SEMICOL, _) :: rest ->
+       Expr (Some expr), rest
+     | _ ->
+       failwith @@ emsg "expected semicolon in expr stmt" after_expr)
 
 
 let parse_block_item tokens = match tokens with
@@ -218,25 +272,9 @@ let parse_block_item tokens = match tokens with
        failwith @@ emsg "expected semicolon after expr" after_expr
     )
   (* ==== statements === *)
-  (* return statement *)
-  | (T.KW_RETURN, lineno) :: more_tokens ->
-    let value, after_exp = parse_expr more_tokens in
-    (match after_exp with
-     | (T.SEMICOL, _) :: rest ->
-       Statement (Return value, Line lineno), rest
-     | _ -> failwith @@ emsg "expected semicolon in return stmt" after_exp
-    )
-  (* empty expression statement *)
-  | (T.SEMICOL, lineno) :: rest ->
-    Statement (Expr None, Line lineno), rest
-  (* nonempty expression statement *)
   | (_, lineno) :: _ ->
-    let expr, after_expr = parse_expr tokens in
-    (match after_expr with
-     | (T.SEMICOL, _) :: rest ->
-       Statement (Expr (Some expr), Line lineno), rest
-     | _ ->
-       failwith @@ emsg "expected semicolon in expr stmt" after_expr)
+    let statement, rest = parse_statement tokens in
+    Statement(statement, Line lineno), rest
   (* ==== parse fail: not really possible here b/c of EOF === *)
   | _ ->
     failwith @@ "Should not get here - expected an EOF token"
