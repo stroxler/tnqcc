@@ -135,7 +135,9 @@ and gen_statement (ctx: Context.context) l s = match s with
     let ctx1, branch1_cmd = gen_statement ctx0 l s1 in
     let cmd = gen_conditional expr_cmd branch0_cmd branch1_cmd in
     ctx1, cmd
-  | bad -> failwith @@ emsg l "gen_statement" @@ show_statement bad
+  | Block block ->
+    gen_block ctx block
+(* | bad -> failwith @@ emsg l "gen_statement" @@ show_statement bad *)
 
 and gen_expr (ctx: Context.context) l e = match e with
   | Assign (the_id, val_expr) ->

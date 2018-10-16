@@ -141,6 +141,31 @@ let tests = [
       )
     );
 
+  "can parse blocks" >:: block_item_tcase
+    "{ int x; x = 5; y + 7; }"
+    (
+      Statement (
+        Block [
+          Definition (
+            DefVar {
+              annot = IntAnnot;
+              id = Id "x";
+              init = None;
+            },
+            Line 1
+          );
+          Statement (
+            Expr ( Some ( Assign ((Id "x"), Lit (Int 5)))),
+            Line 1
+          );
+          Statement (
+            Expr ( Some ( BinaryOp (Add, Reference (Id "y"), Lit (Int 7)))),
+            Line 1
+          );
+        ],
+        Line 1
+      )
+    );
 
   "can parse unary operators" >:: expr_tcase
     "-!~1"

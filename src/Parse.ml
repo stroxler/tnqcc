@@ -216,6 +216,10 @@ let parse_expr tokens_ =
 
 
 let rec parse_statement = function
+  (* block statement *)
+  | (T.LBRACE, _) :: after_lbrace ->
+    let block, rest = parse_block after_lbrace in
+    Block block, rest
   (* conditional statement *)
   | (T.KW_IF, _) :: (T.LPAREN, _) :: after_start ->
     let if_expr, after_if = parse_expr after_start in
@@ -254,7 +258,7 @@ let rec parse_statement = function
        failwith @@ emsg "expected semicolon in expr stmt" after_expr)
 
 
-let parse_block_item tokens = match tokens with
+and parse_block_item tokens = match tokens with
   (* ==== definitions === *)
   (* NOTE: we are missing compound definitions (with commas) *)
   (* definition without initializer *)
@@ -280,7 +284,7 @@ let parse_block_item tokens = match tokens with
     failwith @@ "Should not get here - expected an EOF token"
 
 
-let parse_block (block_tokens: T.t list) =
+and parse_block (block_tokens: T.t list) =
   let rec go tokens block_items =
     match tokens with
     | (T.RBRACE, _) :: rest ->
