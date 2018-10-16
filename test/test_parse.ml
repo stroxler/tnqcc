@@ -11,7 +11,7 @@ let expr_tcase code expected_expr =
   let full_code = "int main () { return " ^ code ^ " ; }" in
   let epxected_ast = (Prog [
       DefFn {
-        annot = IntAnnot; name = Id "main";
+        annot = Annot "int"; name = Id "main";
         body = Some [
             Statement (
               Return (
@@ -29,7 +29,7 @@ let block_item_tcase code expected_item =
   let full_code = "int main () { " ^ code ^ " return 0; }" in
   let epxected_ast = (Prog [
       DefFn {
-        annot = IntAnnot; name = Id "main";
+        annot = Annot "int"; name = Id "main";
         body = Some [
             expected_item;
             Statement (
@@ -53,7 +53,7 @@ let tests = [
     (
       Prog [
         DefFn {
-          annot = IntAnnot; name = Id "main";
+          annot = Annot "int"; name = Id "main";
           body = Some [
               Statement (Return (Lit (Int 0)), Line 2);
             ];
@@ -62,19 +62,19 @@ let tests = [
       ]
     );
 
-  "can parse multiple simple functions" >:: prog_tcase
-    "int main() { return 55; }\n\n int cool() { return 10; }"
+  "can parse multiple functions, including user-defined types" >:: prog_tcase
+    "int main() { return 55; }\n\n my_t cool() { return 10; }"
     (
       Prog [
         DefFn {
-          annot = IntAnnot; name = Id "main";
+          annot = Annot "int"; name = Id "main";
           body = Some [
               Statement (Return (Lit (Int 55)), Line 1);
             ];
           line = Line 1;
         };
         DefFn {
-          annot = IntAnnot; name = Id "cool";
+          annot = Annot "my_t"; name = Id "cool";
           body = Some [
               Statement (Return (Lit (Int 10)), Line 3);
             ];
@@ -88,7 +88,20 @@ let tests = [
     (
       Definition (
         DefVar {
-          annot = IntAnnot;
+          annot = Annot "int";
+          id = Id "x";
+          init = None;
+        },
+        Line 1
+      )
+    );
+
+  "can parse variable definitions with user-defined types" >:: block_item_tcase
+    "my_t x;"
+    (
+      Definition (
+        DefVar {
+          annot = Annot "my_t";
           id = Id "x";
           init = None;
         },
@@ -101,7 +114,7 @@ let tests = [
     (
       Definition (
         DefVar {
-          annot = IntAnnot;
+          annot = Annot "int";
           id = Id "x";
           init = Some (BinaryOp (Add, Lit (Int 1), Lit (Int 1)));
         },
@@ -148,7 +161,7 @@ let tests = [
         Block [
           Definition (
             DefVar {
-              annot = IntAnnot;
+              annot = Annot "int";
               id = Id "x";
               init = None;
             },
@@ -165,6 +178,82 @@ let tests = [
         ],
         Line 1
       )
+    );
+
+  "can parse for loops with declarations" >:: block_item_tcase
+    "for (int i = 0; i < 10; i = i + 1) ;"
+    (
+      Statement
+        ( ForLoopDecl
+            ( DefVar { annot = Annot "int"
+                     ; id = Id "i"
+                     ; init = Some (Lit (Int 0)) }
+            , Some ( BinaryOp ( Lt, Reference (Id "i"), Lit (Int 10)) )
+            , Some
+                ( Assign ( Id "i"
+                         , BinaryOp ( Add, Reference (Id "i"), Lit (Int 1))
+                         )
+                )
+            , Expr None
+            )
+        , (Line 1)
+        )
+    );
+
+  "can parse for loops with starting expression / break statements" >:: block_item_tcase
+    "for (i = 0; i < 10; ) break;"
+    (
+      Statement
+        ( ForLoop
+            ( Some
+                ( Assign ( Id "i"
+                         , Lit (Int 0)
+                         )
+                )
+            , Some ( BinaryOp ( Lt, Reference (Id "i"), Lit (Int 10)) )
+            , None
+            , Break
+            )
+        , (Line 1)
+        )
+    );
+
+  "can parse for loops empty for / continue statements" >:: block_item_tcase
+    "for ( ; ; ) continue;"
+    (
+      Statement
+        ( ForLoop
+            ( None
+            , None
+            , None
+            , Continue
+            )
+        , (Line 1)
+        )
+    );
+
+  "can parse while loops" >:: block_item_tcase
+    "while (i < 10) ;"
+    (
+      Statement
+        ( WhileLoop
+            ( BinaryOp ( Lt, Reference (Id "i"), Lit (Int 10))
+            , Expr None
+            )
+        , Line 1
+        )
+    );
+
+  "can parse do-while loops" >:: block_item_tcase
+    "do ; while (i < 10);"
+    (
+      Statement
+        ( DoLoop
+            ( Expr None
+            , BinaryOp ( Lt, Reference (Id "i"), Lit (Int 10))
+            )
+        , Line 1
+        )
     );
 
   "can parse unary operators" >:: expr_tcase

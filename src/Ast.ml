@@ -70,7 +70,7 @@ type expr =
 
 (* type annotations (used in definitions) *)
 type annot =
-  | IntAnnot
+  | Annot of string
   [@@deriving show]
 
 (* variable definitions *)
@@ -87,6 +87,12 @@ type statement =
   | Expr of expr option
   | Return of expr
   | Conditional of expr * statement * statement
+  | ForLoop of (expr option) * (expr option) * (expr option) * statement
+  | ForLoopDecl of def_var * (expr option) * (expr option) * statement
+  | WhileLoop of expr * statement
+  | DoLoop of statement * expr
+  | Break
+  | Continue
   [@@deriving show]
 
 and block =

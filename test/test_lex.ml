@@ -29,7 +29,7 @@ let tests = [
   "lexes keywords and identifiers" >:: lex_tcase
     "int x; return x;"
     [
-      (KW_INT,    1);
+      (TYPE INT,  1);
       (ID "x",    1);
       (SEMICOL,   1);
       (KW_RETURN, 1);
@@ -115,7 +115,7 @@ let tests = [
   "lexes a simple function" >:: lex_tcase
     "int main() { return 0; }"
     [
-      (KW_INT,    1);
+      (TYPE INT,  1);
       (ID "main", 1);
       (LPAREN,    1);
       (RPAREN,    1);
@@ -129,7 +129,7 @@ let tests = [
   "lexes two functions" >:: lex_tcase
     "int main() { return 0; }\nint cool() { return 1; }"
     [
-      (KW_INT,    1);
+      (TYPE INT,  1);
       (ID "main", 1);
       (LPAREN,    1);
       (RPAREN,    1);
@@ -138,7 +138,7 @@ let tests = [
       (LIT_INT 0, 1);
       (SEMICOL,   1);
       (RBRACE,    1);
-      (KW_INT,    2);
+      (TYPE INT,  2);
       (ID "cool", 2);
       (LPAREN,    2);
       (RPAREN,    2);

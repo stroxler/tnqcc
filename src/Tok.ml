@@ -1,5 +1,14 @@
 open Core
 
+type builtin_type =
+  | INT
+  | CHAR
+  [@@deriving show, ord, eq, sexp]
+
+let builtin_type_to_string = function
+  | INT -> "int"
+  | CHAR -> "char"
+
 type token =
   (* having an explicit EOF token isn't really needed for a
      functional compiler if we don't care about error messages,
@@ -39,8 +48,6 @@ type token =
   | OP_COLON
   (* keywords *)
   | KW_RETURN
-  | KW_INT
-  | KW_CHAR
   | KW_IF
   | KW_ELSE
   | KW_FOR
@@ -48,11 +55,13 @@ type token =
   | KW_WHILE
   | KW_BREAK
   | KW_CONTINUE
+  (* built-in types *)
+  | TYPE of builtin_type
   (* literals *)
   | LIT_INT of int
   (* user-defined things *)
   | ID of string
-  [@@deriving show, ord, sexp]
+  [@@deriving show, ord, eq, sexp]
 
 type pair = token * int
   [@@deriving show]
@@ -66,6 +75,7 @@ module Token = struct
   module T = struct
     type t = token
     let compare = compare_token
+    let equal = equal_token
     let sexp_of_t = sexp_of_token
   end
   include T

@@ -117,6 +117,15 @@ let binary_ops_by_prec = mk_binary_ops_by_prec [
        in between *)
   ]
 
+
+let parse_one_token descr expected display tokens  = match tokens with
+  | (tok, _) :: rest ->
+    if not (T.Token.equal tok expected)
+    then failwith @@ emsg ("expected " ^ display ^ " in " ^ descr) tokens
+    else rest
+  | bad ->
+    failwith @@ emsg "unexpected end of input in for" bad
+
 let parse_left_associative_binary_onelevel
     ~(parse_inner: T.tokens -> expr * T.tokens)
     ~(matching_ops: (T.token, binary_op, 'cmp) Map.t)
@@ -160,11 +169,11 @@ let parse_expr tokens_ =
      right-associative, rather than left-associative, plus it only
      accepts an id on the left hand side *)
   let rec parse_assignment = function
-  | (T.ID name, _) :: (T.OP_SEQ, _) :: more ->
-    let value, rest = parse_assignment more in
-    Assign (Id name, value), rest
-  | tokens ->
-    parse_trinary tokens
+    | (T.ID name, _) :: (T.OP_SEQ, _) :: more ->
+      let value, rest = parse_assignment more in
+      Assign (Id name, value), rest
+    | tokens ->
+      parse_trinary tokens
   and parse_trinary tokens =
     let left_expr, after_left = parse_binary tokens in
     match after_left with
@@ -237,44 +246,116 @@ let rec parse_statement = function
         )
       | _ -> failwith @@ emsg "expected ) in if" after_if
     )
+  (* for loops *)
+  | (T.KW_FOR, _) :: after_for ->
+    parse_for after_for
+  (* while loops *)
+  | (T.KW_WHILE, _) :: after_while ->
+    let after_lp = parse_one_token "while statement" T.LPAREN "(" after_while in
+    let e, after_e = parse_expr after_lp in
+    let after_rp = parse_one_token "while statement" T.RPAREN ")" after_e in
+    let s, after_s = parse_statement after_rp in
+    WhileLoop (e, s), after_s
+  (* do-while loops *)
+  | (T.KW_DO, _) :: after_do ->
+    let s, after_s = parse_statement after_do in
+    let after_while = parse_one_token "do-while statement" T.KW_WHILE "while" after_s in
+    let after_lp = parse_one_token "do-while statement" T.LPAREN "(" after_while in
+    let e, after_e = parse_expr after_lp in
+    let after_rp = parse_one_token "do-while statement" T.RPAREN ")" after_e in
+    let after_sc = parse_one_token "do-while statement" T.SEMICOL ";" after_rp in
+    DoLoop (s, e), after_sc
+  (* loop control statements *)
+  | (T.KW_BREAK, _) :: more ->
+    let rest = parse_one_token "break statement" T.SEMICOL ";" more in
+    Break, rest
+  | (T.KW_CONTINUE, _) :: more ->
+    let rest = parse_one_token "continue statement" T.SEMICOL ";" more in
+    Continue, rest
   (* return statement *)
   | (T.KW_RETURN, _) :: more_tokens ->
-    let value, after_exp = parse_expr more_tokens in
-    (match after_exp with
-     | (T.SEMICOL, _) :: rest ->
-       Return value, rest
-     | _ -> failwith @@ emsg "expected semicolon in return stmt" after_exp
-    )
+    let value, more = parse_expr more_tokens in
+    let rest = parse_one_token "return statement" T.SEMICOL ";" more in
+    Return value, rest
   (* empty expression statement *)
   | (T.SEMICOL, _) :: rest ->
     Expr None, rest
   (* nonempty expression statement *)
   | tokens ->
-    let expr, after_expr = parse_expr tokens in
-    (match after_expr with
-     | (T.SEMICOL, _) :: rest ->
-       Expr (Some expr), rest
-     | _ ->
-       failwith @@ emsg "expected semicolon in expr stmt" after_expr)
+    let expr, more = parse_expr tokens in
+    let rest = parse_one_token "expr statement" T.SEMICOL ";" more in
+    Expr (Some expr), rest
 
+
+and parse_for after_for =
+  let parse_optional_expr expected_tok expected_tok_descr toks =
+    let first_tok, _ = List.hd_exn toks in
+    if T.Token.equal first_tok expected_tok
+    then None, List.tl_exn toks
+    else
+      let e, after_e = parse_expr toks in
+      let rest = parse_one_token
+          "for statement" expected_tok expected_tok_descr after_e in
+      Some e, rest
+  in
+  let parse_rest_of_for after_l =
+    let middle_exp, after_m = parse_optional_expr T.SEMICOL ";" after_l in
+    let right, after_r = parse_optional_expr T.RPAREN ")" after_m in
+    let stmt, rest = parse_statement after_r in
+    middle_exp, right, stmt, rest
+  in
+  let after_lp = parse_one_token "for statement" T.LPAREN "(" after_for in
+  match after_lp with
+  | (T.TYPE t, _) :: _ ->
+    let annot = Annot (T.builtin_type_to_string t) in
+    let more = List.tl_exn after_lp in
+    let left, after_left = parse_def_var annot more in
+    let middle, right, stmt, rest = parse_rest_of_for after_left in
+    ForLoopDecl (left, middle, right, stmt), rest
+  | (T.ID t, _) :: (T.ID _, _) :: _ ->
+    let annot = Annot t in
+    let more = List.tl_exn after_lp in
+    let left, after_left = parse_def_var annot more in
+    let middle, right, stmt, rest = parse_rest_of_for after_left in
+    ForLoopDecl (left, middle, right, stmt), rest
+  | _ ->
+    let left, after_left = parse_optional_expr T.SEMICOL ";" after_lp in
+    let middle, right, stmt, rest = parse_rest_of_for after_left in
+    ForLoop (left, middle, right, stmt), rest
+
+
+and parse_def_var (annot: annot) (after_annot: T.pair list) = match after_annot with
+  (* declaration with initializer *)
+  | (T.ID varname, _) :: (T.OP_SEQ, _) :: after_eq ->
+    let init, after_expr = parse_expr after_eq in
+    (
+      match after_expr with
+      | (T.SEMICOL, _) :: rest ->
+        DefVar {annot=annot; id=Id varname; init=Some init}, rest
+      | _ ->
+        failwith @@ emsg "expected semicolon after expr" after_expr
+    )
+  (* declaration with out initializer *)
+  | (T.ID varname, _) :: (T.SEMICOL, _) :: rest ->
+    DefVar {annot=annot; id=Id varname; init=None}, rest
+  | _ ->
+    failwith @@ emsg "failed to parse variable definition" after_annot
 
 and parse_block_item tokens = match tokens with
   (* ==== definitions === *)
-  (* NOTE: we are missing compound definitions (with commas) *)
-  (* definition without initializer *)
-  | (T.KW_INT, lineno) :: (T.ID varname, _) :: (T.SEMICOL, _) :: rest ->
-    let def_var = DefVar {annot=IntAnnot; id=Id varname; init=None} in
+  (* definition with a builtin type *)
+  | ((T.TYPE t), lineno) :: _ ->
+    let annot = Annot (T.builtin_type_to_string t) in
+    let more = List.tl_exn tokens in
+    let def_var, rest = parse_def_var annot more in
+    Definition (def_var, Line lineno), rest
+  (* definition with a user-defined type *)
+  | ((T.ID t), lineno) :: (T.ID _, _) :: _ ->
+    let annot = Annot t in
+    let more = List.tl_exn tokens in
+    let def_var, rest = parse_def_var annot more in
     Definition (def_var, Line lineno), rest
   (* definition with initializer *)
-  | (T.KW_INT, lineno) :: (T.ID varname, _) :: (T.OP_SEQ, _) :: after_eq ->
-    let init, after_expr = parse_expr after_eq in
-    (match after_expr with
-     | (T.SEMICOL, _) :: rest ->
-       let def_var = DefVar {annot=IntAnnot; id=Id varname; init=Some init} in
-       Definition (def_var, Line lineno), rest
-     | _ ->
-       failwith @@ emsg "expected semicolon after expr" after_expr
-    )
   (* ==== statements === *)
   | (_, lineno) :: _ ->
     let statement, rest = parse_statement tokens in
@@ -295,7 +376,7 @@ and parse_block (block_tokens: T.t list) =
   in go block_tokens []
 
 
-let parse_fn (fn_name: string) (fn_tokens: T.t list) (lineno: int) =
+let parse_fn (fn_name: string) (annot: annot) (fn_tokens: T.t list) (lineno: int) =
   let parse_fn_arg_list = function
     | (T.RPAREN, _) :: rest -> (), rest
     | bad_tokens ->
@@ -313,7 +394,7 @@ let parse_fn (fn_name: string) (fn_tokens: T.t list) (lineno: int) =
   let _, after_args_tokens = parse_fn_arg_list fn_tokens in
   let body, rest = parse_fn_body after_args_tokens in
   let fn = DefFn {
-      annot  = IntAnnot;
+      annot  = annot;
       name   = (Id fn_name);
       body   = body;
       line   = Line lineno;
@@ -324,8 +405,13 @@ let parse_fn (fn_name: string) (fn_tokens: T.t list) (lineno: int) =
 let rec parse_fn_defs (tokens: T.t list) (parsed_fns: def_fn list) =
   match tokens with
   | (T.EOF, _) :: _ -> List.rev parsed_fns
-  | (T.KW_INT, lineno) :: (T.ID name, _) :: (T.LPAREN, _) :: more_tokens ->
-    let fn, rest = parse_fn name more_tokens lineno in
+  | (T.TYPE t, lineno) :: (T.ID name, _) :: (T.LPAREN, _) :: more_tokens ->
+    let annot = Annot (T.builtin_type_to_string t) in
+    let fn, rest = parse_fn name annot more_tokens lineno in
+    parse_fn_defs rest (fn::parsed_fns)
+  | (T.ID t, lineno) :: (T.ID name, _) :: (T.LPAREN, _) :: more_tokens ->
+    let annot = Annot t in
+    let fn, rest = parse_fn name annot more_tokens lineno in
     parse_fn_defs rest (fn::parsed_fns)
   | _ -> failwith @@ emsg "parse_fn_defs" tokens
 

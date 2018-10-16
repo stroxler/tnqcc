@@ -95,14 +95,14 @@ let emsg (lineno: int) (msg: string) =
    By prefixing the varnames with an underscore, we disable
    ocaml from throwing errors about unused variables
 *)
-let get_obj_size _lineno _objname = function
-  | IntAnnot ->
+let get_obj_size lineno objname = function
+  | Annot "int" ->
         4
-  (* | _ ->
-       _lineno
-       ("Could not process type annotation of argument/variable " ^
-        _objname ^ " with type " ^ (show_annot annot))
-   *)
+  | bad_annot ->
+      failwith @@ emsg
+        lineno
+        ("Could not process type annotation of argument/variable " ^
+         objname ^ " with type " ^ (show_annot bad_annot))
 
 
 type var_info = { ram_loc: string; annot: annot; }
@@ -110,15 +110,15 @@ type var_info = { ram_loc: string; annot: annot; }
 let show_var_info vi =
   "{ ram_loc = \"" ^ vi.ram_loc ^ "\"; annot = " ^ (show_annot vi.annot) ^ "; }"
 
-type scope_level = ScopeLevel of {
-    is_arg_level: bool;
+type block_scope = BlockScope of {
+    is_arg_scope: bool;
     var_infos: (string, var_info, String.comparator_witness) Map.t;
     ebp_offset: int;
   }
 
 
-let show_scope_level (ScopeLevel sl) =
-  let is_arg_level_str = Bool.to_string sl.is_arg_level in
+let show_block_scope (BlockScope sl) =
+  let is_arg_scope_str = Bool.to_string sl.is_arg_scope in
   let var_infos_str = (
     "Map.of_alist (module String) " ^
     (Util.show_list
@@ -126,32 +126,32 @@ let show_scope_level (ScopeLevel sl) =
           Printf.sprintf "(\"%s\", %s)" v (show_var_info vi))
        (Map.to_alist sl.var_infos))) in
   let ebp_offset_str = Int.to_string sl.ebp_offset in
-  ("ScopeLevel { is_arg_level = " ^ is_arg_level_str ^ ";\n" ^
+  ("BlockScope { is_arg_scope = " ^ is_arg_scope_str ^ ";\n" ^
    "             var_infos = " ^ var_infos_str ^ ";\n" ^
    "             ebp_offset = " ^ ebp_offset_str ^ "; }")
 
 (* for testing only *)
-let _mk_scope_level is_arg_level vi_alist ebp_offset = ScopeLevel {
-    is_arg_level = is_arg_level;
+let _mk_block_scope is_arg_scope vi_alist ebp_offset = BlockScope {
+    is_arg_scope = is_arg_scope;
     var_infos = Map.of_alist_exn (module String) vi_alist;
     ebp_offset = ebp_offset;
   }
 
-let empty_slevel ?(is_arg_level=false) (ebp_offset : int) =
-  ScopeLevel {
-    is_arg_level = is_arg_level;
+let empty_bscope ?(is_arg_scope=false) (ebp_offset : int) =
+  BlockScope {
+    is_arg_scope = is_arg_scope;
     var_infos = Map.empty (module String);
     ebp_offset = ebp_offset;
   }
 
 
-let add_obj_to_slevel
+let add_obj_to_bscope
     lineno
     (obj: id * annot)
-    ?(is_arg_level=false)
-    (ScopeLevel slevel) =
+    ?(is_arg_scope=false)
+    (BlockScope bscope) =
   (* Make sure the caller knows what they are doing *)
-  if not @@ phys_equal slevel.is_arg_level is_arg_level
+  if not @@ phys_equal bscope.is_arg_scope is_arg_scope
   then failwith "Tried to add local to arguments scope (this is a bug)";
   (* parse the obj *)
   let (Id name, annot) = obj in
@@ -159,16 +159,16 @@ let add_obj_to_slevel
   (* See notes above about args vs local vars for why this code works as it
      does: with args we go up in address space and address depends on type size,
      whereas with locals we go down and the address is already known *)
-  let cur_ebp_offset = slevel.ebp_offset in
+  let cur_ebp_offset = bscope.ebp_offset in
   let new_ebp_offset = cur_ebp_offset + size in
   (* update the ram refs map. Fail (user error) if name already declared *)
   let ram_loc =
-    if slevel.is_arg_level
+    if bscope.is_arg_scope
     then Printf.sprintf  "%d(%%ebp)" @@ new_ebp_offset
     else Printf.sprintf "-%d(%%ebp)" @@ cur_ebp_offset
   in
   let var_info = { ram_loc = ram_loc; annot = annot } in
-  let added_var = Map.add slevel.var_infos ~key:name ~data:var_info in
+  let added_var = Map.add bscope.var_infos ~key:name ~data:var_info in
   let new_var_infos = (match added_var with
       | `Ok updated_var_infos ->
         updated_var_infos
@@ -177,38 +177,39 @@ let add_obj_to_slevel
           lineno
           "Duplicate variable or argument of name " ^ name
     ) in
-  (* return the slevel offset, so that the stack-level
+  (* return the bscope offset, so that the stack-scope
      code can track the max offset *)
-  ScopeLevel {
-    slevel with
+  BlockScope {
+    bscope with
     var_infos = new_var_infos;
     ebp_offset = new_ebp_offset;
   }
 
 
-let slevel_from_args lineno (args: (id * annot) list) =
-  let initial_slevel = empty_slevel
-      initial_args_prev_ebp_offset ~is_arg_level:true in
-  let rec go slevel = function
-    | [] -> slevel
+let bscope_from_args lineno (args: (id * annot) list) =
+  let initial_bscope = empty_bscope
+      initial_args_prev_ebp_offset ~is_arg_scope:true in
+  let rec go bscope = function
+    | [] -> bscope
     | argvar :: more_args ->
-      let new_slevel = add_obj_to_slevel
-          lineno argvar slevel
-          ~is_arg_level:true
-      in go new_slevel more_args
+      let new_bscope = add_obj_to_bscope
+          lineno argvar bscope
+          ~is_arg_scope:true
+      in go new_bscope more_args
   in
-  go initial_slevel args;
+  go initial_bscope args;
 
 
 type context = Context of {
-    stack_frame: scope_level list;
+    stack_frame: block_scope list;
     esp_offset: int;
     fn_name: string option;
+    current_loop_prefixes: string list;
   }
 
 
 let show_context (Context ctx) =
-  let stack_frame_str = Util.show_list show_scope_level ctx.stack_frame in
+  let stack_frame_str = Util.show_list show_block_scope ctx.stack_frame in
   let offset_str = Int.to_string ctx.esp_offset in
   let fn_name_str = match ctx.fn_name with
     | None -> "None"
@@ -223,6 +224,7 @@ let empty_context = Context {
     stack_frame = [];
     esp_offset = -999;
     fn_name = None;
+    current_loop_prefixes = [];
   }
 
 
@@ -230,29 +232,41 @@ let new_function
     (Line lineno)
     (fn_name: string)
     (args: (Ast.id * Ast.annot) list)
-    (Context _parent_ctx) =
-  let args_slevel = slevel_from_args lineno args in
+    (Context parent_ctx) =
+  let args_bscope = bscope_from_args lineno args in
   Context {
-    (* parent_ctx with *)
-    stack_frame = [args_slevel];
+    parent_ctx with
+    stack_frame = [args_bscope];
     esp_offset = 0;
     fn_name = Some fn_name;
   }
 
-let add_slevel (Context ctx) =
-  let ScopeLevel previous_inner_slevel = List.hd_exn ctx.stack_frame in
-  let ebp_offset = previous_inner_slevel.ebp_offset in
+let enter_block (Context ctx) =
+  let BlockScope previous_inner_bscope = List.hd_exn ctx.stack_frame in
+  let ebp_offset = previous_inner_bscope.ebp_offset in
   Context {
     ctx with
-    stack_frame = (empty_slevel ebp_offset ) :: ctx.stack_frame
+    stack_frame = (empty_bscope ebp_offset ) :: ctx.stack_frame
   }
 
-(* Note that we do *not* reset the esp_offset *)
-let remove_slevel (Context ctx) =
-  let outer_slevels = List.tl_exn ctx.stack_frame in
+let exit_block (Context ctx) =
+  let outer_bscopes = List.tl_exn ctx.stack_frame in
   Context {
     ctx with
-    stack_frame = outer_slevels
+    stack_frame = outer_bscopes
+  }
+
+let enter_loop (label_prefix: string) (Context ctx) =
+  Context {
+    ctx with
+    current_loop_prefixes = label_prefix :: ctx.current_loop_prefixes
+  }
+
+let exit_loop (Context ctx) =
+  let outer_loops = List.tl_exn ctx.current_loop_prefixes in
+  Context {
+    ctx with
+    current_loop_prefixes = outer_loops
   }
 
 (* At the beginning of a function, the esp pointer is one
@@ -260,38 +274,46 @@ let remove_slevel (Context ctx) =
    relative to what it would otherwise be is one word size *less*
    than the maximum ebp offset to reach the next free space, where
    the maximum is over all variable declarations in all scope
-   levels of a function *)
+   scopes of a function *)
 let compute_new_esp_offset old_esp_offset current_ebp_offset =
   let minimal_esp_offset = current_ebp_offset - word_size in
   Int.max minimal_esp_offset old_esp_offset
 
 let add_var (Line lineno) (var: id * annot) (Context ctx) =
-  let old_inner_slevel, outer_slevels = (
+  let old_inner_bscope, outer_bscopes = (
     match ctx.stack_frame with
     | i :: o ->
       i, o
     | [] ->
       failwith "Should not have empty stack frame (this is a bug)"
   ) in
-  let ScopeLevel inner_slevel = add_obj_to_slevel lineno var old_inner_slevel in
-  let stack_frame = (ScopeLevel inner_slevel) :: outer_slevels in
-  let esp_offset = compute_new_esp_offset ctx.esp_offset inner_slevel.ebp_offset in
+  let BlockScope inner_bscope = add_obj_to_bscope lineno var old_inner_bscope in
+  let stack_frame = (BlockScope inner_bscope) :: outer_bscopes in
+  let esp_offset = compute_new_esp_offset ctx.esp_offset inner_bscope.ebp_offset in
   Context {
     ctx with
     stack_frame = stack_frame;
     esp_offset = esp_offset;
   }
 
+let get_loop_prefix (Line lineno) (Context ctx) =
+  match ctx.current_loop_prefixes with
+  | [] ->
+    failwith @@ emsg
+      lineno
+      "Attempted loop control statement (break/continue) outside of loop"
+  | current_prefix :: _ ->
+    current_prefix
 
 let find_info (Line lineno) (Id objname) (Context ctx) =
   let rec go = function
-    | (ScopeLevel scope) :: outer_slevels ->
+    | (BlockScope scope) :: outer_bscopes ->
       let var_infos = scope.var_infos in
       (match Map.find var_infos objname with
        | Some ram_reference ->
          ram_reference
        | None ->
-         go outer_slevels
+         go outer_bscopes
       )
     | [] ->
       failwith @@ emsg
@@ -309,5 +331,5 @@ let find_type_annot line the_id context =
   let info = find_info line the_id context in
   info.annot
 
-let is_one_level (Context ctx) =
+let is_one_scope (Context ctx) =
   List.length ctx.stack_frame = 2

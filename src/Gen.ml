@@ -28,6 +28,11 @@ let binary_ops_with_special_rules = Set.of_list (module BinaryOp) [
   ]
 
 
+let emsg (line: line) (context: string) (display: string) =
+  let Line lineno = line in
+  Printf.sprintf "Could not generate at line %d\nContext: %s\nAst: %s"
+    lineno context display
+
 
 let get_fn_ret_label fname =
   ".L_" ^ fname ^ "__return"
@@ -37,18 +42,22 @@ let get_label () =
   label_counter := (!label_counter + 1);
   ".L" ^ (Int.to_string !label_counter)
 
-let emsg (line: line) (context: string) (display: string) =
-  let Line lineno = line in
-  Printf.sprintf "Could not generate at line %d\nContext: %s\nAst: %s"
-    lineno context display
+and jump_to_if_eax label true_false =
+  let jump_code = match true_false with
+    | false -> "je"
+    | true -> "jne"
+  in (
+    "  cmpl $0, %eax" ^ "\n" ^
+    "  " ^ jump_code ^ " " ^ label
+  )
 
 let rec gen_block: Context.context -> block -> (Context.context * string) =
   fun parent_ctx body ->
-    let initial_ctx = Context.add_slevel parent_ctx in
+    let initial_ctx = Context.enter_block parent_ctx in
     let ending_ctx, code_lines =
       List.fold_map ~init: initial_ctx ~f:gen_block_item body in
     let code = String.concat code_lines in
-    let final_ctx = Context.remove_slevel ending_ctx in
+    let final_ctx = Context.exit_block ending_ctx in
     final_ctx, code
 
 (** gen_block_item returns `context * code`
@@ -99,19 +108,124 @@ and gen_conditional
   (
     expr_asm ^ "\n" ^           (* evaluate the if expr *)
     "  cmpl $0, %eax" ^ "\n" ^  (* compare to false *)
-    "  je " ^ branch1_label ^ "\n" ^
+    (jump_to_if_eax branch1_label false) ^ "\n" ^
     branch0_asm ^ "\n" ^
     "  jmp " ^ finished_label ^ "\n" ^
-    "  " ^ branch1_label ^ ":" ^ "\n" ^
+    branch1_label ^ ":" ^ "\n" ^
     branch1_asm ^ "\n" ^
-    "  " ^ finished_label ^ ":"
+    finished_label ^ ":" ^ "\n"
   )
 
+
+and gen_loop
+    (ctx: Context.context)
+    (l: line)
+    ?(decl: def_var option = None)
+    ?(e_init: expr option = None)
+    ?(e_condition: expr option = None)
+    ?(e_bottom: expr option = None)
+    ?(is_do=false)
+    (body_stmt: statement) =
+  let loop_prefix = get_label () in
+  let top_label = loop_prefix ^ "_top" in
+  let commited_label = loop_prefix ^ "_committed" in
+  let bottom_label = loop_prefix ^ "_bottom" in
+  let done_label = loop_prefix ^ "_done" in
+  (* handle allocating any declared variables *)
+  let ctx_start, decl_cmd_maybe = (
+    match decl with
+    | None ->
+      ctx, ""
+    | Some d ->
+      gen_definition (Context.enter_block ctx) l d
+  ) in
+  (* handle
+     - initializations, if any,
+     - jumping directly to after the decision, if this is a
+       do loop
+     - setting the top label
+     - the comparison used to terminate, if any
+     - setting the committed label *)
+  let header = (
+    let do_preamble_maybe = ( match is_do with
+        | true ->
+          "  jmp " ^ commited_label ^ "\n"
+        | false ->
+          ""
+      ) in
+    let init_cmd_maybe = ( match e_init with
+        | None ->
+          ""
+        | Some e ->
+          (gen_expr ctx_start l e) ^ "\n"
+      ) in
+    let top_line = top_label ^ ":\n" in
+    let committed_line_maybe =
+      if is_do
+      then commited_label ^ ":\n"
+      else "" in
+    let jump_to_done_maybe = ( match e_condition with 
+        | Some e ->
+          (
+            (gen_expr ctx_start l e) ^ "\n" ^
+            (jump_to_if_eax done_label false) ^ "\n"
+          )
+        | None ->
+          ""
+      ) in
+    (
+      decl_cmd_maybe ^
+      init_cmd_maybe ^
+      do_preamble_maybe ^
+      top_line ^
+      jump_to_done_maybe ^
+      committed_line_maybe
+    )
+  ) in
+  (* handle the body, which is the same for all loop types *)
+  let ctx_loop = Context.enter_loop loop_prefix ctx_start in
+  let ctx_end, body = gen_statement ctx_loop l body_stmt in
+  (* handle the footer:
+     - the bottom label
+     - the third expression in for loop, if any
+     - jumping to the top (always)
+     - the done label *)
+  let footer = (
+    let bottom_line = bottom_label ^ ":\n" in
+    let done_line = done_label ^ ":\n" in
+    let finish_cmd_maybe = ( match e_bottom with
+        | None ->
+          ""
+        | Some e ->
+          (gen_expr ctx_start l e) ^ "\n"
+      ) in
+    let jump_to_top = "  jmp " ^ top_label ^ "\n" in
+    (
+      bottom_line ^
+      finish_cmd_maybe ^
+      jump_to_top ^
+      done_line
+    )
+  ) in
+  (* handle deallocating any declared variables *)
+  let ctx_final = (
+    match decl with
+    | None -> 
+      Context.exit_loop ctx_end
+    | Some _ ->
+      Context.exit_block @@ Context.exit_loop ctx_end
+  ) in
+  let code = (
+    header ^
+    body ^
+    footer
+  ) in
+  ctx_final, code
 
 (** gen_statement returns `context * code` because we have to be
     able to pass esp offset information up to the function declaration
     from any block statement that has variable declarations *)
-and gen_statement (ctx: Context.context) l s = match s with
+and gen_statement (ctx: Context.context) l stmt = match stmt with
   | Expr None ->
     ctx, ""
   | Expr (Some e) ->
@@ -125,9 +239,14 @@ and gen_statement (ctx: Context.context) l s = match s with
       | Some fname ->
         "  jmp " ^ (get_fn_ret_label fname)
       | None ->
-        failwith @@ emsg l "return statement outside function" @@ show_statement s
+        failwith @@ emsg
+          l "return statement outside function" (show_statement stmt)
     ) in
-    let code = expr_cmd ^ "\n" ^ close_stack_frame ^ "\n" ^ ret_cmd ^ "\n" in
+    let code = (
+      expr_cmd ^ "\n" ^
+      close_stack_frame ^ "\n" ^
+      ret_cmd ^ "\n"
+    ) in
     ctx, code
   | Conditional (e, s0, s1) ->
     let expr_cmd = gen_expr ctx l e in
@@ -137,7 +256,35 @@ and gen_statement (ctx: Context.context) l s = match s with
     ctx1, cmd
   | Block block ->
     gen_block ctx block
-(* | bad -> failwith @@ emsg l "gen_statement" @@ show_statement bad *)
+  (* loop structures; unfortunately it was hard to share code *)
+  | WhileLoop (e, s) ->
+    gen_loop
+      ctx l s
+      ~e_condition:(Some e)
+  | DoLoop (s, e) ->
+    gen_loop
+      ctx l s
+      ~e_condition:(Some e)
+      ~is_do:true
+  | ForLoop (ei, ec, eb, s) ->
+    gen_loop
+      ctx l s
+      ~e_init:ei
+      ~e_condition:ec
+      ~e_bottom:eb
+  | ForLoopDecl (d, ec, eb, s) ->
+    gen_loop
+      ctx l s
+      ~decl:(Some d)
+      ~e_condition:ec
+      ~e_bottom:eb
+  (* loop control statements *)
+  | Break ->
+    let loop_prefix = Context.get_loop_prefix l ctx in
+    ctx, "  jmp " ^ loop_prefix ^ "_done"
+  | Continue ->
+    let loop_prefix = Context.get_loop_prefix l ctx in
+    ctx, "  jmp " ^ loop_prefix ^ "_bottom"
 
 and gen_expr (ctx: Context.context) l e = match e with
   | Assign (the_id, val_expr) ->

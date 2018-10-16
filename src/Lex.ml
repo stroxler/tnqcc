@@ -11,8 +11,6 @@ let id_or_kw_re = Str.regexp
 let id_or_kw_token str =
   match str with
   | "return" -> KW_RETURN
-  | "int" -> KW_INT
-  | "char" -> KW_CHAR
   | "if" -> KW_IF
   | "else" -> KW_ELSE
   | "for" -> KW_FOR
@@ -20,6 +18,8 @@ let id_or_kw_token str =
   | "while" -> KW_WHILE
   | "break" -> KW_BREAK
   | "continue" -> KW_CONTINUE
+  | "int" -> TYPE INT
+  | "char" -> TYPE CHAR
   | _ -> ID str
 
 
