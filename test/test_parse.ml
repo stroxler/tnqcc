@@ -12,6 +12,7 @@ let expr_tcase code expected_expr =
   let epxected_ast = (Prog [
       DefFn {
         annot = Annot "int"; name = Id "main";
+        args = [];
         body = Some [
             Statement (
               Return (
@@ -30,6 +31,7 @@ let block_item_tcase code expected_item =
   let epxected_ast = (Prog [
       DefFn {
         annot = Annot "int"; name = Id "main";
+        args = [];
         body = Some [
             expected_item;
             Statement (
@@ -54,6 +56,7 @@ let tests = [
       Prog [
         DefFn {
           annot = Annot "int"; name = Id "main";
+          args = [];
           body = Some [
               Statement (Return (Lit (Int 0)), Line 2);
             ];
@@ -62,12 +65,13 @@ let tests = [
       ]
     );
 
-  "can parse multiple functions, including user-defined types" >:: prog_tcase
-    "int main() { return 55; }\n\n my_t cool() { return 10; }"
+  "can parse multiple functions, including user-defined types and args" >:: prog_tcase
+    "int main() { return 55; }\n\n my_t cool(int a, float b) { return 10; }"
     (
       Prog [
         DefFn {
           annot = Annot "int"; name = Id "main";
+          args = [];
           body = Some [
               Statement (Return (Lit (Int 55)), Line 1);
             ];
@@ -75,6 +79,7 @@ let tests = [
         };
         DefFn {
           annot = Annot "my_t"; name = Id "cool";
+          args = [(Id "a", Annot "int"); (Id "b", Annot "float")];
           body = Some [
               Statement (Return (Lit (Int 10)), Line 3);
             ];
@@ -350,5 +355,19 @@ let tests = [
         Assign ((Id "y"), Reference (Id "z")),
         Lit (Int 5)
       )
+    );
+
+  "can parse function calls" >:: expr_tcase
+    "f0() + f1(a + b, 17)"
+    (
+      BinaryOp
+        ( Add
+        , Call (Id "f0", [])
+        , Call ( Id "f1"
+               , [ BinaryOp ( Add, Reference (Id "a"), Reference (Id "b") )
+                 ; Lit ( Int 17 )
+                 ]
+               )
+        )
     );
 ]

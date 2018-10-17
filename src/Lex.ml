@@ -52,16 +52,12 @@ let lex_complex_token lineno code =
 let rec go_lex lineno code tokens =
   match code with
   | [] -> List.rev tokens
-  | '{'::rest ->      go_lex lineno rest (LBRACE::tokens)
-  | '}'::rest ->      go_lex lineno rest (RBRACE::tokens)
-  | '('::rest ->      go_lex lineno rest (LPAREN::tokens)
-  | ')'::rest ->      go_lex lineno rest (RPAREN::tokens)
-  | ';'::rest ->      go_lex lineno rest (SEMICOL::tokens)
   | '='::'='::rest -> go_lex lineno rest (OP_DEQ::tokens)
   | '!'::'='::rest -> go_lex lineno rest (OP_NEQ::tokens)
-  | '='::rest ->      go_lex lineno rest (OP_SEQ::tokens)
   | '>'::'='::rest -> go_lex lineno rest (OP_GEQ::tokens)
   | '<'::'='::rest -> go_lex lineno rest (OP_LEQ::tokens)
+  | '&'::'&'::rest -> go_lex lineno rest (OP_DAND::tokens)
+  | '|'::'|'::rest -> go_lex lineno rest (OP_DOR::tokens)
   | '>'::rest ->      go_lex lineno rest (OP_GT::tokens)
   | '<'::rest ->      go_lex lineno rest (OP_LT::tokens)
   | '!'::rest ->      go_lex lineno rest (OP_BANG::tokens)
@@ -70,14 +66,19 @@ let rec go_lex lineno code tokens =
   | '*'::rest ->      go_lex lineno rest (OP_STAR::tokens)
   | '/'::rest ->      go_lex lineno rest (OP_DIV::tokens)
   | '%'::rest ->      go_lex lineno rest (OP_MOD::tokens)
-  | '&'::'&'::rest -> go_lex lineno rest (OP_DAND::tokens)
-  | '|'::'|'::rest -> go_lex lineno rest (OP_DOR::tokens)
   | '&'::rest ->      go_lex lineno rest (OP_SAND::tokens)
   | '|'::rest ->      go_lex lineno rest (OP_SOR::tokens)
   | '~'::rest ->      go_lex lineno rest (OP_TILDE::tokens)
   | '^'::rest ->      go_lex lineno rest (OP_XOR::tokens)
-  | '?'::rest ->      go_lex lineno rest (OP_QUESTION::tokens)
-  | ':'::rest ->      go_lex lineno rest (OP_COLON::tokens)
+  | '{'::rest ->      go_lex lineno rest (LBRACE::tokens)
+  | '}'::rest ->      go_lex lineno rest (RBRACE::tokens)
+  | '('::rest ->      go_lex lineno rest (LPAREN::tokens)
+  | ')'::rest ->      go_lex lineno rest (RPAREN::tokens)
+  | ';'::rest ->      go_lex lineno rest (SEMICOL::tokens)
+  | ','::rest ->      go_lex lineno rest (COMMA::tokens)
+  | '?'::rest ->      go_lex lineno rest (QUESTION::tokens)
+  | ':'::rest ->      go_lex lineno rest (COLON::tokens)
+  | '='::rest ->      go_lex lineno rest (SEQ::tokens)
   | c::more ->
     if Char.is_whitespace c
     then go_lex lineno more tokens

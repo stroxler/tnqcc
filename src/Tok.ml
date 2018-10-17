@@ -22,12 +22,15 @@ type token =
   | LPAREN
   | RPAREN
   | SEMICOL
+  | SEQ  (* single equal (assign) *)
+  | QUESTION
+  | COLON
+  | COMMA
   (* operators (unary vs binary does not matter for lexing,
      although it *does* matter that operators which are
      prefixes of others get handled later in our matching. *)
   | OP_DEQ  (* double equal *)
   | OP_NEQ  (* not equal *)
-  | OP_SEQ  (* single equal (assign) *)
   | OP_GEQ
   | OP_LEQ
   | OP_GT
@@ -44,8 +47,6 @@ type token =
   | OP_SOR
   | OP_TILDE  (* ~ is bitwise complement *)
   | OP_XOR
-  | OP_QUESTION
-  | OP_COLON
   (* keywords *)
   | KW_RETURN
   | KW_IF

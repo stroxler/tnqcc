@@ -169,7 +169,7 @@ let parse_expr tokens_ =
      right-associative, rather than left-associative, plus it only
      accepts an id on the left hand side *)
   let rec parse_assignment = function
-    | (T.ID name, _) :: (T.OP_SEQ, _) :: more ->
+    | (T.ID name, _) :: (T.SEQ, _) :: more ->
       let value, rest = parse_assignment more in
       Assign (Id name, value), rest
     | tokens ->
@@ -177,11 +177,11 @@ let parse_expr tokens_ =
   and parse_trinary tokens =
     let left_expr, after_left = parse_binary tokens in
     match after_left with
-    | (T.OP_QUESTION, _) :: after_question ->
+    | (T.QUESTION, _) :: after_question ->
       let middle_expr, after_middle = parse_assignment after_question in
       (
         match after_middle with
-        | (T.OP_COLON, _) :: after_colon ->
+        | (T.COLON, _) :: after_colon ->
           let right_expr, after_right = parse_trinary after_colon in
           TrinaryOp(left_expr, middle_expr, right_expr), after_right
         | _ ->
@@ -203,12 +203,6 @@ let parse_expr tokens_ =
       UnaryOp (BNot, inner), rest
     | tokens -> parse_atom tokens
   and parse_atom = function
-    (* literals (constants) *)
-    | (T.LIT_INT n, _) :: rest ->
-      Lit (Int n), rest
-    (* references (to variables) *)
-    | (T.ID name, _) :: rest ->
-      Reference (Id name), rest
     (* parentheses *)
     | (T.LPAREN, _) :: after_lparen ->
       let expr, after_exp = parse_assignment after_lparen in
@@ -217,6 +211,29 @@ let parse_expr tokens_ =
          expr, after_rparen
        | bad_tokens -> failwith @@ emsg "expected ) parsing expr" bad_tokens
       )
+    (* function calls
+       note that we're not parsing function calls where the function
+       is itself an expression (which can't happen in our subset of C anyway,
+       but in theory you could get into this situation with function pointers)
+    *)
+    | (T.ID fname, _) :: (T.LPAREN, _) :: after_lparen ->
+      let rec parse_args args_so_far = function
+        | (T.RPAREN, _) :: rest ->
+          List.rev args_so_far, rest
+        | (T.COMMA, _) :: more ->
+          parse_args args_so_far more
+        | toks ->
+          let e, more = parse_assignment toks in
+          parse_args (e :: args_so_far) more
+      in
+      let args, rest = parse_args [] after_lparen in
+      Call (Id fname, args), rest
+    (* literals (constants) *)
+    | (T.LIT_INT n, _) :: rest ->
+      Lit (Int n), rest
+    (* references (to variables) *)
+    | (T.ID name, _) :: rest ->
+      Reference (Id name), rest
     (* parse failure *)
     | bad_tokens -> failwith @@ emsg "failed to parse expr" bad_tokens
   in
@@ -326,7 +343,7 @@ and parse_for after_for =
 
 and parse_def_var (annot: annot) (after_annot: T.pair list) = match after_annot with
   (* declaration with initializer *)
-  | (T.ID varname, _) :: (T.OP_SEQ, _) :: after_eq ->
+  | (T.ID varname, _) :: (T.SEQ, _) :: after_eq ->
     let init, after_expr = parse_expr after_eq in
     (
       match after_expr with
@@ -376,11 +393,31 @@ and parse_block (block_tokens: T.t list) =
   in go block_tokens []
 
 
+(* Just a note: I double-checked that the function body has to be a block
+   (in most of C, blocks can be swapped out for one-line statements) and
+   this is in fact true; you cannot define a function like
+      `int main() return 0;`
+   Probably the reason for this is that if C allowed for single-statement
+   function definitions, you wouldn't be able to tell a forward declaration
+   apart from a definition with an empty `Expr None` statement.
+*)
 let parse_fn (fn_name: string) (annot: annot) (fn_tokens: T.t list) (lineno: int) =
-  let parse_fn_arg_list = function
-    | (T.RPAREN, _) :: rest -> (), rest
+  let parse_fn_arg_list toks =
+    let rec go args_so_far = function
+    | (T.RPAREN, _) :: rest ->
+      List.rev args_so_far, rest
+    | (T.COMMA, _) :: more ->
+      go args_so_far more
+    | (T.TYPE t, _) :: (T.ID varname, _) :: more ->
+      let annot = Annot (T.builtin_type_to_string t) in
+      go (((Id varname), annot)::args_so_far) more
+    | (T.ID t, _) :: (T.ID varname, _) :: more ->
+      let annot = Annot t in
+      go (((Id varname), annot)::args_so_far) more
     | bad_tokens ->
       failwith @@ emsg "parse_fn_arg_list" bad_tokens
+    in
+    go [] toks
   in
   let parse_fn_body = function
     | (T.SEMICOL, _) :: rest ->
@@ -391,11 +428,12 @@ let parse_fn (fn_name: string) (annot: annot) (fn_tokens: T.t list) (lineno: int
     | bad_tokens ->
       failwith @@ emsg "parse_fn_body" bad_tokens
   in
-  let _, after_args_tokens = parse_fn_arg_list fn_tokens in
+  let args, after_args_tokens = parse_fn_arg_list fn_tokens in
   let body, rest = parse_fn_body after_args_tokens in
   let fn = DefFn {
       annot  = annot;
       name   = (Id fn_name);
+      args   = args;
       body   = body;
       line   = Line lineno;
     } in

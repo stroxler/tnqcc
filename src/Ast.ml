@@ -63,6 +63,7 @@ type expr =
   | Assign of id * expr
   | Lit of lit
   | Reference of id
+  | Call of id * expr list
   | UnaryOp of unary_op * expr
   | BinaryOp of binary_op * expr * expr
   | TrinaryOp of expr * expr * expr
@@ -110,7 +111,7 @@ and block_item =
 type def_fn = DefFn of {
     annot: annot;
     name: id;
-    (* TODO add params *)
+    args: (id * annot) list;
     body: block option;
     line: line;
   }

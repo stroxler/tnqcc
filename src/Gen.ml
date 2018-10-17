@@ -303,9 +303,9 @@ and gen_expr (ctx: Context.context) l e = match e with
       (gen_expr ctx l e0)
       (gen_expr ctx l e1)
       (gen_expr ctx l e2)
-(* | bad -> failwith @@ emsg l "gen_expr" @@ show_expr bad *)
-(* ^ depending on the stage of development, the
-   compiler sometimes tells us there is no unhandled case *)
+  | Call (the_id, _arg_list) ->
+    failwith @@ emsg l "function calls not yet implemented" @@ show_id the_id
+
 
 and gen_unary_expr (context: Context.context) l o e =
   let expr_cmd = gen_expr (context: Context.context) l e in
@@ -462,55 +462,58 @@ let gen_fn_body initial_context l body_block =
    In Linux the label is just the function name, in OSX we need
    an underscore prefix. That's what the `mangled_name` stuff is about
 *)
-(* stack frame rules are:
-   - esp always points to the top of the stack (the last non-free spot; the
-     first free spot is `-4(%esp)`). `push` and `pop` auto-adjust it
-   - ebp should point at the top of the stack frame for the current function
-   - there are two values above %ebp that are special:
-     - the last one is the previous value of ebp (top of the prior function's
-       stack frame), which we manually save in `open_stack_frame`, and restore
-       in the return statement's `close_stack_frame`
-     - The one above it is the return instruction address, which `call`
-       automatically saves for us (in some assembly languages there's no `call`;
-       it's equiv to a push and a jump and `ret` is equivalent to a pop and a
-       jump).
-   - note that this means function arguments are two addresses above ebp. In
-     32-bit mode this means the first function arg is at 8(%ebp).
+let gen_fn_definition line ctx fname args body =
+  let entered_ctx = Context.enter_fn
+      line fname args ctx in
+  let Context.Context final_ctx, body_asm = gen_fn_body entered_ctx line body in
+  let mangled_name =
+    if Util.equal_os_type Util.current_os Util.Linux
+    then fname
+    else "_" ^ fname
+  in
+  let decl = Printf.sprintf "  .globl %s" mangled_name in
+  let label = Printf.sprintf "%s:" mangled_name in
+  let frame_offset = (match final_ctx.esp_offset with
+      | None -> failwith "had no esp offset in function (compiler bug)"
+      | Some offset -> offset
+    )in
+  let esp_to_end_of_frame = Printf.sprintf "subl $%d, %s" frame_offset "%esp" in
+  let esp_to_start_of_frame = Printf.sprintf "addl $%d, %s" frame_offset "%esp" in
+  let open_stack_frame = (
+    "  pushl	%ebp" ^ "\n" ^
+    "  movl	%esp, %ebp" ^ "\n" ^
+    "  " ^ esp_to_end_of_frame
+  ) in
+  let close_stack_frame = (
+    (get_fn_ret_label fname) ^ ":" ^ "\n" ^
+    "  " ^ esp_to_start_of_frame ^ "\n" ^
+    "  ret"
+  ) in
+  let code = (
+    decl ^ "\n" ^ label ^ "\n" ^
+    open_stack_frame ^ "\n" ^
+    body_asm ^ "\n\n" ^
+    close_stack_frame ^ "\n" ^
+    "  ret"
+  ) in
+  (Context.exit_fn (Context final_ctx)), code
+
+(* Generate a function. This might not involve any code
+   if the Ast element is just a declaration (although we'll update the function
+   lookup map). gen_fn_definition does all the actual assembly generation,
+   for definitions (that have a body)
 *)
 let gen_fn (parent_ctx: Context.context) = function
-  | DefFn {annot=_; name=Id fname; body=Some body; line=line} ->
-    let child_ctx = Context.new_function line fname [] parent_ctx in
-    let Context.Context final_ctx, body_asm = gen_fn_body child_ctx line body in
-    let mangled_name =
-      if Util.equal_os_type Util.current_os Util.Linux
-      then fname
-      else "_" ^ fname
-    in
-    let decl = Printf.sprintf "  .globl %s" mangled_name in
-    let label = Printf.sprintf "%s:" mangled_name in
-    let frame_offset = final_ctx.esp_offset in
-    let esp_to_end_of_frame = Printf.sprintf "subl $%d, %s" frame_offset "%esp" in
-    let esp_to_start_of_frame = Printf.sprintf "addl $%d, %s" frame_offset "%esp" in
-    let open_stack_frame = (
-      "  pushl	%ebp" ^ "\n" ^
-      "  movl	%esp, %ebp" ^ "\n" ^
-      "  " ^ esp_to_end_of_frame
-    ) in
-    let close_stack_frame = (
-      (get_fn_ret_label fname) ^ ":" ^ "\n" ^
-      "  " ^ esp_to_start_of_frame ^ "\n" ^
-      "  ret"
-    ) in
-    let code = (
-      decl ^ "\n" ^ label ^ "\n" ^
-      open_stack_frame ^ "\n" ^
-      body_asm ^ "\n\n" ^
-      close_stack_frame ^ "\n" ^
-      "  ret"
-    ) in
-    child_ctx, code
-  | DefFn {annot=_; name=_; body=None; line=_; } ->
-    parent_ctx, ""
+  | DefFn {annot=annot; name=Id fname; args=args; body=maybe_body; line=line} ->
+    let declared_ctx = Context.declare_fn
+        line fname annot (List.map ~f:(fun (_, a) -> a) args) parent_ctx in
+    (
+      match maybe_body with
+      | None ->
+        declared_ctx, ""
+      | Some body ->
+        gen_fn_definition line declared_ctx fname args body
+    )
 
 
 let gen_prog = function
