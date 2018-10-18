@@ -17,6 +17,7 @@ let context_tcase (expected:context) (actual:context) =
 
 let ce_actual = empty_context
 let ce_expected = Context {
+    args = None;
     stack_frame = [];
     esp_offset = None;
     fn_name = None;
@@ -30,10 +31,10 @@ let test_ce =
 let (f_ret_type, f_arg_types) = 
   (Ast.Annot "int"), [Ast.Annot "int"; Ast.Annot "int"]
 let c0_actual = declare_fn
-    (Line 0) "myfunc" f_ret_type f_arg_types
+    (Line 0) "myfunc" f_ret_type f_arg_types true
     ce_expected
 let fn_map = Core.Map.of_alist_exn (module Core.String)
-    [("myfunc", (f_ret_type, f_arg_types))]
+    [("myfunc", (f_ret_type, f_arg_types, true))]
 let c0_expected =
   let Context ctxe = ce_expected in
   Context {
@@ -62,7 +63,8 @@ let c1_expected =
   let Context ctx0 = c0_expected in
   Context {
     ctx0 with
-    stack_frame = [args_scope];
+    args = Some args_scope;
+    stack_frame = [];
     esp_offset = Some 0;
     fn_name = Some "myfunc";
   }
@@ -85,7 +87,7 @@ let c2_expected = (
   let Context ctx1 = c1_expected in
   Context {
     ctx1 with
-    stack_frame = [ top_scope; args_scope ];
+    stack_frame = [ top_scope ];
     esp_offset = Some total_space_for_locals;
   })
 let test_c2 =
@@ -107,7 +109,7 @@ let c3_expected = (
   let Context ctx2 = c2_expected in
   Context {
     ctx2 with
-    stack_frame = [ scope_1; args_scope ];
+    stack_frame = [ scope_1; ];
     esp_offset = Some total_space_for_locals;
   })
 let test_c3 =
@@ -140,7 +142,7 @@ let c4_expected = (
   let Context ctx3 = c3_expected in
   Context {
     ctx3 with
-    stack_frame = [ scope_2; scope_1; args_scope ];
+    stack_frame = [ scope_2; scope_1 ];
     esp_offset = Some total_space_for_locals;
   }
 )
@@ -196,33 +198,43 @@ let tests = [
   test_c7;
   test_c8;
 
-  "find_info behaves as expected"  >:: (fun _ ->
+  "find_var_info behaves as expected for locals"  >:: (fun _ ->
       (
-        let x_info_c2 = find_info (Ast.Line 3) (Ast.Id "x") c3_expected in
+        let x_info_c2 = find_var_info (Ast.Line 3) (Ast.Id "x") c3_expected in
         assert_equal
           { ram_loc = "-4(%ebp)"; annot = Ast.Annot "int" }
           x_info_c2
           ~printer:show_var_info
       );
       (
-        let x_info = find_info (Ast.Line 3) (Ast.Id "x") c4_expected in
+        let x_info = find_var_info (Ast.Line 3) (Ast.Id "x") c4_expected in
         assert_equal
           { ram_loc = "-12(%ebp)"; annot = Ast.Annot "int" }
           x_info
           ~printer:show_var_info
       );
       (
-        let y_info = find_info (Ast.Line 3) (Ast.Id "y") c4_expected in
+        let y_info = find_var_info (Ast.Line 3) (Ast.Id "y") c4_expected in
         assert_equal
           { ram_loc = "-8(%ebp)"; annot = Ast.Annot "int" }
           y_info
           ~printer:show_var_info
       );
       (
-        let y_info = find_info (Ast.Line 3) (Ast.Id "y") c5_expected in
+        let y_info = find_var_info (Ast.Line 3) (Ast.Id "y") c5_expected in
         assert_equal
           { ram_loc = "-8(%ebp)"; annot = Ast.Annot "int" }
           y_info
+          ~printer:show_var_info
+      );
+    );
+
+  "find_var_info behaves as expected for args"  >:: (fun _ ->
+      (
+        let x_info_c2 = find_var_info (Ast.Line 3) (Ast.Id "arg0") c3_expected in
+        assert_equal
+          { ram_loc = "8(%ebp)"; annot = Ast.Annot "int" }
+          x_info_c2
           ~printer:show_var_info
       );
     );

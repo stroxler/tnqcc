@@ -72,7 +72,7 @@ type expr =
 (* type annotations (used in definitions) *)
 type annot =
   | Annot of string
-  [@@deriving show]
+  [@@deriving show, eq]
 
 (* variable definitions *)
 type def_var = DefVar of {

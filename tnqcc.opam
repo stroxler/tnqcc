@@ -5,6 +5,7 @@ maintainer: "Steven Troxler <email@example.com>"
 
 depends: [
   "dune" {build}
+  "ounit" {test}
   # the str package s built-in
   "base"
   "core"

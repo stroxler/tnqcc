@@ -117,35 +117,35 @@ let show_var_info vi =
 
 type block_scope = BlockScope of {
     is_arg_scope: bool;
-    var_infos: (string, var_info, String.comparator_witness) Map.t;
+    var_info_map: (string, var_info, String.comparator_witness) Map.t;
     ebp_offset: int;
   }
 
 
 let show_block_scope (BlockScope sl) =
   let is_arg_scope_str = Bool.to_string sl.is_arg_scope in
-  let var_infos_str = (
+  let var_info_str = (
     "Map.of_alist (module String) " ^
     (Util.show_list
        (fun (v, vi) ->
           Printf.sprintf "(\"%s\", %s)" v (show_var_info vi))
-       (Map.to_alist sl.var_infos))) in
+       (Map.to_alist sl.var_info_map))) in
   let ebp_offset_str = Int.to_string sl.ebp_offset in
   ("BlockScope { is_arg_scope = " ^ is_arg_scope_str ^ ";\n" ^
-   "             var_infos = " ^ var_infos_str ^ ";\n" ^
+   "             var_info_map = " ^ var_info_str ^ ";\n" ^
    "             ebp_offset = " ^ ebp_offset_str ^ "; }")
 
 (* for testing only *)
 let _mk_block_scope is_arg_scope vi_alist ebp_offset = BlockScope {
     is_arg_scope = is_arg_scope;
-    var_infos = Map.of_alist_exn (module String) vi_alist;
+    var_info_map = Map.of_alist_exn (module String) vi_alist;
     ebp_offset = ebp_offset;
   }
 
 let empty_bscope ?(is_arg_scope=false) (ebp_offset : int) =
   BlockScope {
     is_arg_scope = is_arg_scope;
-    var_infos = Map.empty (module String);
+    var_info_map = Map.empty (module String);
     ebp_offset = ebp_offset;
   }
 
@@ -173,10 +173,10 @@ let add_obj_to_bscope
     else Printf.sprintf "-%d(%%ebp)" @@ cur_ebp_offset
   in
   let var_info = { ram_loc = ram_loc; annot = annot } in
-  let added_var = Map.add bscope.var_infos ~key:name ~data:var_info in
-  let new_var_infos = (match added_var with
-      | `Ok updated_var_infos ->
-        updated_var_infos
+  let added_var = Map.add bscope.var_info_map ~key:name ~data:var_info in
+  let new_var_info_map = (match added_var with
+      | `Ok updated_var_info_map ->
+        updated_var_info_map
       | `Duplicate ->
         failwith @@ emsg
           lineno
@@ -185,7 +185,7 @@ let add_obj_to_bscope
             code can track the max offset *)
   BlockScope {
     bscope with
-    var_infos = new_var_infos;
+    var_info_map = new_var_info_map;
     ebp_offset = new_ebp_offset;
   }
 
@@ -282,17 +282,19 @@ let next_bscope_ebp_offset (BlockScope bscope) =
 *)
 
 type context = Context of {
+    args: block_scope option;
     stack_frame: block_scope list;
     esp_offset: int option;
     fn_name: string option;
     current_loop_prefixes: string list;
     fn_map: ( string
-            , Ast.annot * Ast.annot list
+            , Ast.annot * (Ast.annot list) * bool
             , String.comparator_witness) Map.t;
   }
 
 
 let empty_context = Context {
+    args = None;
     stack_frame = [];
     esp_offset = None;
     fn_name = None;
@@ -311,14 +313,15 @@ let show_context (Context ctx) =
     | None -> "None"
     | Some n -> "Some \"" ^ n ^ "\""
   in
-  let show_fn_pair (r, a) =
-    "(" ^ (show_annot r) ^ ", " ^ (Util.show_list show_annot a) ^ ")"
+  let show_fn_triple (r, a, d) =
+    "(" ^ (show_annot r) ^ ", " ^ (Util.show_list show_annot a) ^
+    ", " ^ (Bool.to_string d) ^ ")"
   in
   let fn_map_str =
     ("Map.of_alist (module String) " ^
      (Util.show_list
         (fun (f, fi) ->
-           Printf.sprintf "(\"%s\", %s)" f (show_fn_pair fi))
+           Printf.sprintf "(\"%s\", %s)" f (show_fn_triple fi))
         (Map.to_alist ctx.fn_map)))
   in
   ("Context { stack_frame = " ^  stack_frame_str ^ ";\n" ^
@@ -330,8 +333,12 @@ let show_context (Context ctx) =
 let ctx_in_fn (Context ctx) =
   let no_name = (phys_equal ctx.fn_name None) in
   let no_esp_offset = (phys_equal ctx.esp_offset None) in
-  let stack_frame_toplevel = (phys_equal ctx.stack_frame []) in
-  if (no_name = stack_frame_toplevel) && (no_name = no_esp_offset)
+  let no_argument_scope = (Option.is_none ctx.args) in
+  let consistent_state =
+    ((no_name = no_argument_scope) && (no_name = no_esp_offset)
+     || (no_name && ((List.length ctx.stack_frame) > 0)))
+  in
+  if consistent_state
   then (not no_name)
   else failwith @@ "Had inconsistent context " ^ (show_context (Context ctx))
 
@@ -339,10 +346,7 @@ let ctx_at_toplevel ctx =
   ctx_in_fn (ctx)
 
 let ctx_at_fn_toplevel (Context ctx) =
-  (ctx_in_fn (Context ctx)) && (
-    let (BlockScope bs) = (List.hd_exn ctx.stack_frame)
-    in bs.is_arg_scope
-  )
+  (ctx_in_fn (Context ctx)) && ((List.length ctx.stack_frame) = 0)
 
 let ctx_in_fn_body ctx =
   (ctx_in_fn ctx) && (not (ctx_at_fn_toplevel ctx))
@@ -353,6 +357,7 @@ let declare_fn
     (fn_name: string)
     (return_type: Ast.annot)
     (arg_types: Ast.annot list)
+    (is_defntn: bool)
     (Context ctx) =
   if ctx_in_fn (Context ctx)
   then failwith @@ emsg
@@ -364,18 +369,26 @@ let declare_fn
     | None ->
       Context {
         ctx with
-        fn_map = Map.set
-            ctx.fn_map ~key:fn_name ~data:(return_type, arg_types)
+        fn_map = Map.set ctx.fn_map
+            ~key:fn_name ~data:(return_type, arg_types, is_defntn)
       }
     (* otherwise make sure it's consistent, then do nothing *)
-    | Some (return_type_, arg_types_) ->
-      if not (phys_equal return_type return_type_)
+    | Some (return_type_, arg_types_, is_defined) ->
+      if is_defined && is_defntn
+      then failwith @@ emsg
+          lineno
+          ("Function " ^ fn_name ^ " was defined or declared twice")
+      else if not (equal_annot return_type return_type_)
       then failwith @@ emsg
           lineno
           ("Function " ^ fn_name ^ " has inconsistent arg types " ^
            (show_annot return_type) ^ " vs " ^
            (show_annot return_type_))
-      else if not (phys_equal arg_types arg_types_)
+      else if not (
+          (List.length arg_types = List.length arg_types_) &&
+          (List.fold2_exn arg_types arg_types_
+             ~f:(fun ok a0 a1 -> ok && (equal_annot a0 a1)) ~init:true)
+        )
       then failwith @@ emsg
           lineno
           ("Function " ^ fn_name ^ " has inconsistent arg types " ^
@@ -397,7 +410,7 @@ let enter_fn
     let args_bscope = bscope_from_args lineno args in
     Context {
       ctx with
-      stack_frame = [args_bscope];
+      args = Some args_bscope;
       esp_offset = Some 0;
       fn_name = Some fn_name;
     }
@@ -406,13 +419,10 @@ let exit_fn (Context ctx) =
   if not (ctx_at_fn_toplevel (Context ctx))
   then failwith
       "Exited a function when not at function toplevel stack (compiler bug)"
-  else if not (
-      let BlockScope bs = (List.hd_exn ctx.stack_frame)
-      in bs.is_arg_scope)
-  then failwith "Exited a function with extra block scopes (compiler bug)"
   else
     Context {
       ctx with
+      args = None;
       stack_frame = [];
       fn_name = None;
       esp_offset = None;
@@ -423,7 +433,13 @@ let enter_block (Context ctx) =
   then failwith
       "Tried to enter a block when not in a function (compiler bug)"
   else
-    let ebp_offset = next_bscope_ebp_offset (List.hd_exn ctx.stack_frame) in
+    let ebp_offset = (
+      match (List.hd ctx.stack_frame) with
+      | None ->
+        initial_locals_current_ebp_offset
+      | Some scope ->
+        next_bscope_ebp_offset scope
+    ) in
     Context {
       ctx with
       stack_frame = (empty_bscope ebp_offset ) :: ctx.stack_frame
@@ -455,11 +471,33 @@ let exit_loop (Context ctx) =
 
 
 let add_var (Line lineno) (var: id * annot) (Context ctx) =
-  if not (ctx_in_fn_body (Context ctx))
+  let (Id objname, _) = var in
+  if (
+    (* Fail if we're trying to add an arg when not in a function *)
+    not (ctx_in_fn_body (Context ctx))
+  )
   then failwith @@ emsg
       lineno
       "Tried to add local var from outside a function body (compiler bug)"
+  else if (
+    (* Fail if we're trying to shadow a function argument *)
+    match ctx.args with
+    | None ->
+      failwith "should not get here"
+    | Some (BlockScope { var_info_map = var_map; _ } ) ->
+      (
+        match Map.find var_map objname with
+        | Some _ ->
+          true
+        | None ->
+          false
+      )
+  )
+  then failwith @@ emsg
+      lineno
+      "Tried to add local var shadowing a function argument"
   else
+    (* actually add the var *)
     let old_inner_bscope, outer_bscopes = (
       match ctx.stack_frame with
       | i :: o -> i, o
@@ -488,38 +526,53 @@ let get_loop_prefix (Line lineno) (Context ctx) =
   | current_prefix :: _ ->
     current_prefix
 
-let find_info (Line lineno) (Id objname) (Context ctx) =
-  let rec go = function
-    | (BlockScope scope) :: outer_bscopes ->
-      let var_infos = scope.var_infos in
-      (match Map.find var_infos objname with
-       | Some ram_reference ->
-         ram_reference
-       | None ->
-         go outer_bscopes
-      )
-    | [] ->
+
+let find_var_info (Line lineno) (Id objname) (Context ctx) =
+  let arg_map = match ctx.args with
+    | None ->
       failwith @@ emsg
         lineno
-        "Could not find object " ^ objname ^ " in current scope"
-  in go ctx.stack_frame
+        "tried to find var info outside fn context (compiler bug)"
+    | Some (BlockScope {var_info_map = var_map; _ }) ->
+      var_map
+  in
+  let rec find_in_scopes = function
+    | (BlockScope {var_info_map = var_map; _ }) :: outer_bscopes ->
+      (
+        match Map.find var_map objname with
+        | Some ram_reference ->
+          ram_reference
+        | None ->
+          find_in_scopes outer_bscopes
+      )
+    | [] ->
+      (
+        match Map.find arg_map objname with
+        | Some ram_reference ->
+          ram_reference
+        | None ->
+          failwith @@ emsg
+            lineno
+            "Could not find object " ^ objname ^ " in current scope" 
+      )
+  in find_in_scopes ctx.stack_frame
 
 
 let find_ram_loc line the_id context =
-  let info = find_info line the_id context in
+  let info = find_var_info line the_id context in
   info.ram_loc
 
 
 let find_type_annot line the_id context =
-  let info = find_info line the_id context in
+  let info = find_var_info line the_id context in
   info.annot
 
 
 let find_fn_info (Line lineno) fname (Context context) =
   let search = Map.find context.fn_map fname in
   match search with
-  | Some info ->
-    info
+  | Some (ret, args, _) ->
+    (ret, args)
   | None ->
     failwith @@ emsg
       lineno
